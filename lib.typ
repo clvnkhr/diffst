@@ -346,8 +346,8 @@
   show-whitespace: false,
   algorithm: "myers",
   inline: "chars",
+  unicode: true,
   semantic-cleanup: false,
-  deadline-ms: none,
 ) = {
   let old-content = read(old)
   let new-content = read(new)
@@ -356,8 +356,8 @@
     show_whitespace: show-whitespace,
     algorithm: algorithm,
     inline: inline,
+    unicode: unicode,
     semantic_cleanup: semantic-cleanup,
-    deadline_ms: deadline-ms,
   ))
   let report = json(_engine.diff(bytes(old-content), bytes(new-content), bytes(options)))
 
@@ -531,8 +531,8 @@
     show-whitespace: it.at("show-whitespace"),
     algorithm: it.algorithm,
     inline: it.inline,
+    unicode: it.at("unicode"),
     semantic-cleanup: it.at("semantic-cleanup"),
-    deadline-ms: it.at("deadline-ms"),
   )
 
   diffst-layout(
@@ -556,8 +556,8 @@
     e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly in inline highlights.", default: false),
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
     e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "chars"),
+    e.field("unicode", bool, doc: "Use Unicode-aware inline tokenization for graphemes and word boundaries.", default: true),
     e.field("semantic-cleanup", bool, doc: "Run similar's semantic cleanup pass on inline highlights.", default: false),
-    e.field("deadline-ms", e.types.option(int), doc: "Optional diff deadline in milliseconds. Defaults to none.", default: none),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),

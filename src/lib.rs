@@ -1,8 +1,6 @@
 use serde::Serialize;
-use similar::algorithms::{diff_slices_deadline, Capture, Compact, Replace};
-use similar::{
-    capture_diff_slices_by_key_deadline, capture_diff_slices_deadline, Algorithm, DiffOp,
-};
+use similar::algorithms::{diff_slices, Capture, Compact, Replace};
+use similar::{capture_diff_slices, capture_diff_slices_by_key, Algorithm, DiffOp, DiffableStr};
 
 #[cfg(target_arch = "wasm32")]
 wasm_minimal_protocol::initiate_protocol!();
@@ -93,25 +91,21 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
         .map(parse_inline_mode)
         .transpose()?
         .unwrap_or(InlineMode::Chars);
+    let unicode = options
+        .get("unicode")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(true);
     let semantic_cleanup = options
         .get("semantic_cleanup")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
-    let deadline_ms = options
-        .get("deadline_ms")
-        .map(parse_deadline_ms)
-        .transpose()?
-        .flatten();
-    let deadline = deadline_ms.and_then(deadline_from_ms);
-
     let old_lines = split_lines(old);
     let new_lines = split_lines(new);
-    let ops = capture_diff_slices_by_key_deadline(
+    let ops = capture_diff_slices_by_key(
         algorithm,
         &old_lines,
         &new_lines,
         |line| normalize_key(line, ignore_whitespace),
-        deadline,
     );
 
     let mut report = DiffReport {
@@ -235,8 +229,8 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                                 show_whitespace,
                                 algorithm,
                                 inline,
+                                unicode,
                                 semantic_cleanup,
-                                deadline,
                             )
                         }
                         (Some(old_line), None) => (
@@ -303,19 +297,19 @@ fn inline_spans(
     show_whitespace: bool,
     algorithm: Algorithm,
     inline: InlineMode,
+    unicode: bool,
     semantic_cleanup: bool,
-    deadline: Option<()>,
 ) -> (Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>) {
     if inline == InlineMode::None {
         return (None, None);
     }
 
-    let old_tokens = inline_tokens(old_line, inline);
-    let new_tokens = inline_tokens(new_line, inline);
+    let old_tokens = inline_tokens(old_line, inline, unicode);
+    let new_tokens = inline_tokens(new_line, inline, unicode);
     let ops = if semantic_cleanup {
-        capture_compact_diff_slices(algorithm, &old_tokens, &new_tokens, deadline)
+        capture_compact_diff_slices(algorithm, &old_tokens, &new_tokens)
     } else {
-        capture_diff_slices_deadline(algorithm, &old_tokens, &new_tokens, deadline)
+        capture_diff_slices(algorithm, &old_tokens, &new_tokens)
     };
     let mut old_spans = Vec::new();
     let mut new_spans = Vec::new();
@@ -383,25 +377,30 @@ fn inline_spans(
     (Some(old_spans), Some(new_spans))
 }
 
-fn capture_compact_diff_slices<T>(
-    algorithm: Algorithm,
-    old: &[T],
-    new: &[T],
-    deadline: Option<()>,
-) -> Vec<DiffOp>
+fn capture_compact_diff_slices<T>(algorithm: Algorithm, old: &[T], new: &[T]) -> Vec<DiffOp>
 where
     T: Eq + std::hash::Hash,
 {
     let capture = Capture::new();
     let replace = Replace::new(capture);
     let mut compact = Compact::new(replace, old, new);
-    diff_slices_deadline(algorithm, &mut compact, old, new, deadline).unwrap();
+    diff_slices(algorithm, &mut compact, old, new).unwrap();
     compact.into_inner().into_inner().into_ops()
 }
 
-fn inline_tokens(line: &str, inline: InlineMode) -> Vec<String> {
+fn inline_tokens(line: &str, inline: InlineMode, unicode: bool) -> Vec<String> {
     match inline {
+        InlineMode::Chars if unicode => line
+            .tokenize_graphemes()
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
         InlineMode::Chars => line.chars().map(|ch| ch.to_string()).collect(),
+        InlineMode::Words if unicode => line
+            .tokenize_unicode_words()
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
         InlineMode::Words => word_tokens(line),
         InlineMode::None => Vec::new(),
     }
@@ -462,26 +461,6 @@ fn parse_inline_mode(value: &str) -> Result<InlineMode, String> {
             "inline must be one of: chars, words, none; got {value:?}"
         )),
     }
-}
-
-fn parse_deadline_ms(value: &serde_json::Value) -> Result<Option<u64>, String> {
-    if value.is_null() {
-        return Ok(None);
-    }
-
-    let Some(deadline_ms) = value.as_u64() else {
-        return Err("deadline-ms must be a non-negative integer number of milliseconds".to_owned());
-    };
-
-    if deadline_ms == 0 {
-        Ok(None)
-    } else {
-        Ok(Some(deadline_ms))
-    }
-}
-
-fn deadline_from_ms(_deadline_ms: u64) -> Option<()> {
-    Some(())
 }
 
 fn push_span<'a>(
@@ -659,6 +638,50 @@ mod tests {
     }
 
     #[test]
+    fn defaults_to_unicode_graphemes_for_inline_chars() {
+        let output = diff_impl(
+            "a🇦🇹b\n".as_bytes(),
+            "a🇦🇱b\n".as_bytes(),
+            br#"{"inline":"chars"}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+        assert!(value["rows"][0]["old_spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "delete" && span["text"] == "🇦🇹"));
+        assert!(value["rows"][0]["new_spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "insert" && span["text"] == "🇦🇱"));
+    }
+
+    #[test]
+    fn can_disable_unicode_inline_tokenization() {
+        let output = diff_impl(
+            "a🇦🇹b\n".as_bytes(),
+            "a🇦🇱b\n".as_bytes(),
+            br#"{"inline":"chars","unicode":false}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+        assert!(value["rows"][0]["old_spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "delete" && span["text"] == "🇹"));
+        assert!(value["rows"][0]["new_spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "insert" && span["text"] == "🇱"));
+    }
+
+    #[test]
     fn can_disable_inline_spans_for_replacements() {
         let output = diff_impl(
             b"hello world\n",
@@ -686,27 +709,6 @@ mod tests {
         assert_eq!(value["rows"][0]["kind"], "replace");
         assert!(value["rows"][0]["old_spans"].is_array());
         assert!(value["rows"][0]["new_spans"].is_array());
-    }
-
-    #[test]
-    fn accepts_optional_deadline() {
-        let output = diff_impl(
-            b"a\nb\nc\n",
-            b"a\nbee\nc\n",
-            br#"{"deadline_ms":10000}"#,
-        )
-        .unwrap();
-        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
-
-        assert_eq!(value["stats"]["deletions"], 1);
-        assert_eq!(value["stats"]["additions"], 1);
-    }
-
-    #[test]
-    fn rejects_invalid_deadline() {
-        let err = diff_impl(b"a\n", b"b\n", br#"{"deadline_ms":"soon"}"#).unwrap_err();
-
-        assert!(err.contains("deadline-ms must be"));
     }
 
     #[test]

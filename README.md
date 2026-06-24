@@ -33,12 +33,12 @@ turns on one option:
 - `algorithm-myers.typ`, `algorithm-patience.typ`, `algorithm-histogram.typ`,
   `algorithm-lcs.typ`, and `algorithm-hunt.typ`
 - `inline-chars.typ`, `inline-words.typ`, and `inline-none.typ`
+- `unicode.typ`
 - `semantic-cleanup.typ`
 - `ignore-whitespace.typ` and `show-whitespace.typ`
 - `display-collapsed.typ` and `display-full.typ`
 - `context-lines.typ`
 - `collapse-threshold.typ`
-- `deadline-ms.typ`
 
 `examples/custom-colors.typ` shows color overrides, and
 `examples/show-rules.typ` shows Typst show rules for styling the rendered
@@ -52,8 +52,8 @@ blocks, tables, cells, and fonts around a report.
   "new.typ",
   algorithm: "patience",
   inline: "words",
+  unicode: true,
   semantic-cleanup: true,
-  deadline-ms: 10000,
   ignore-whitespace: true,
   show-whitespace: true,
   display: "collapsed", // or "full"
@@ -70,20 +70,24 @@ compare the underlying algorithms.
 character-level edits, `"words"` highlights word/punctuation chunks, and
 `"none"` keeps only the changed-row background.
 
+`unicode` controls inline tokenization quality and defaults to `true`. With
+`inline: "chars"`, Unicode mode diffs grapheme clusters instead of raw Unicode
+scalar values, so emoji sequences and combining marks stay together. With
+`inline: "words"`, it uses Unicode word boundaries, which is better for
+research papers and multilingual prose.
+
 `semantic-cleanup` runs an extra cleanup pass on inline highlights to shift
 highlight boundaries toward more readable chunks.
-
-`deadline-ms` optionally forwards a millisecond deadline to the WASM diff
-engine's deadline-aware algorithm hooks. It defaults to `none`, because diffst
-prioritizes quality over speed. Typst plugins currently do not expose a host
-clock to WASM, so this is best-effort in the current PDF path rather than a
-hard wall-clock cutoff.
 
 `show-whitespace` makes changed spaces and tabs visible inside inline highlights.
 
 `context-lines` controls how many unchanged lines are kept before and after a
 collapsed region. `collapse-threshold` controls how long an unchanged run must
 be before it is collapsed.
+
+`deadline-ms` is intentionally not exposed. `similar` can use real deadlines
+when a clock is available, but Typst plugins do not currently provide the host
+clock imports needed for a reliable WASM wall-clock cutoff.
 
 The summary includes a line similarity score. In manual layouts, use
 `report.stats.similarity` for a `0.0` to `1.0` ratio and

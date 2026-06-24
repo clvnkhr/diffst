@@ -1,0 +1,3 @@
+The replication cohort included naïve reviewers, São Paulo sites, and 京都 clinics.
+Emoji annotations marked promising claims with 🇦🇱 and rejected claims with ❄️.
+The appendix compared α-diversity, β-diversity, and the ΔBIC score.
