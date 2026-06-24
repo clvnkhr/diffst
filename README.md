@@ -29,6 +29,7 @@ turns on one option:
 - `algorithm-myers.typ`, `algorithm-patience.typ`, `algorithm-histogram.typ`,
   `algorithm-lcs.typ`, and `algorithm-hunt.typ`
 - `inline-chars.typ`, `inline-words.typ`, and `inline-none.typ`
+- `long-lines.typ`
 - `unicode.typ`
 - `debug.typ`
 - `semantic-cleanup.typ`
@@ -38,7 +39,8 @@ turns on one option:
 - `collapse-threshold.typ`
 - `hunks.typ`
 
-`examples/custom-colors.typ` shows color overrides, and
+`examples/custom-colors.typ` shows color overrides,
+`examples/minimal-table.typ` shows a print-friendly minimal table, and
 `examples/show-rules.typ` shows Typst show rules for styling the rendered
 blocks, tables, cells, and fonts around a report.
 
@@ -56,6 +58,7 @@ blocks, tables, cells, and fonts around a report.
   show-whitespace: true,
   display: "collapsed", // or "full"
   context-lines: 3,
+  table-style: "default", // or "minimal"
 )
 ```
 
@@ -83,19 +86,27 @@ highlight boundaries toward more readable chunks.
 collapsed region. `collapse-threshold` controls how long an unchanged run must
 be before it is collapsed.
 
+`table-style` controls the table rules. The default style draws a light grid;
+`"minimal"` keeps only the center separator and the rule under the header. For a
+document-wide minimal style, use `#show: minimal-table`.
+
 `deadline-ms` is intentionally not exposed. `similar` can use real deadlines
 when a clock is available, but Typst plugins do not currently provide the host
 clock imports needed for a reliable WASM wall-clock cutoff.
 
-The summary includes a line similarity score. It is based on exactly matched
-lines, so a prose example with small edits on every line can show `0%` even
-when the lines are visually similar. In manual layouts, use
+The summary includes an `x% similar lines` score. It is based on exactly matched
+lines, so a prose example with small edits on every line can show
+`0% similar lines` even when the lines are visually similar. In manual layouts, use
 `report.stats.similarity` for a `0.0` to `1.0` ratio and
 `report.stats.equal_lines` for the matched-line count.
 
 The default table compares rendered line content and adds a note when only the
 final trailing newline differs. Raw newline and line-ending details are exposed
 through `report.meta`.
+
+Long unbroken code spans are clipped to the table cell instead of being broken
+with inserted characters. This keeps copied text clean while preventing a single
+token from drawing outside the report.
 
 ## Colors
 
@@ -119,6 +130,19 @@ Available keys are `text`, `line-no`, `border`, `header`, `equal`, `delete`,
 `insert`, `replace`, `inline-delete`, `inline-insert`, `inline-equal`,
 `delete-text`, `insert-text`, `replace-text`, and `collapsed`.
 
+For printed papers or reports, `minimal-colors` and `minimal-table` provide a
+more minimal style. The minimal table keeps only the middle separator and the
+rule under the header, while keeping colored inline highlights for changed
+words or characters.
+
+```typst
+#import "lib.typ": diffst, minimal-table
+
+#show: minimal-table
+
+#diffst("old.typ", "new.typ")
+```
+
 ## Manual Layouts
 
 The default `#diffst(..)` call is built from smaller functions that can be
@@ -138,6 +162,7 @@ arranged manually.
   diffst-summary-stat,
   diffst-summary-title,
   diffst-table,
+  minimal-colors,
 )
 
 #let report = diffst-report("old.typ", "new.typ", show-whitespace: true)
@@ -159,7 +184,7 @@ arranged manually.
     #align(right)[
       #labels.old -> #labels.new\
       #lines.old old lines, #lines.new new lines\
-      #similarity% similar\
+      #similarity% similar lines\
       #linebreak()
       #diffst-summary-stat(report, "changed-blocks")
     ]
@@ -171,6 +196,9 @@ arranged manually.
 
 #v(8pt)
 #diffst-table(report, rows: rows)
+
+#v(8pt)
+#diffst-table(report, rows: rows, colors: minimal-colors, table-style: "minimal")
 ```
 
 `report.ops` exposes the raw line-level diff operations returned by the WASM
@@ -245,7 +273,9 @@ replace each layer.
 - `diffst-table(..)` returns a `table` with four columns: old line number, old
   content, new line number, and new content. Header, line number, content, and
   collapsed rows are `table.cell`s.
-- Inline highlights inside code cells are `box` elements around monospace
+- `minimal-table` is a show rule that sets `colors: minimal-colors` and
+  `table-style: "minimal"` for all `diffst` elements in its scope.
+- Inline highlights inside code cells are `highlight` elements around monospace
   `text`. Unchanged text is plain monospace `text`.
 - `diffst-rows(..)` returns row dictionaries for `diffst-table(..)`; it does
   not emit content.

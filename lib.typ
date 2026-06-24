@@ -20,6 +20,24 @@
   collapsed: rgb("#f7f8fb"),
 )
 
+#let minimal-colors = (
+  text: black,
+  line-no: luma(45%),
+  border: black,
+  header: white,
+  equal: white,
+  delete: luma(94%),
+  insert: luma(96%),
+  replace: luma(92%),
+  inline-delete: rgb("#f2b6bf"),
+  inline-insert: rgb("#a8d5b3"),
+  inline-equal: none,
+  delete-text: black,
+  insert-text: black,
+  replace-text: black,
+  collapsed: white,
+)
+
 #let _color(colors, key) = colors.at(key, default: default-colors.at(key))
 #let _mono-font = "DejaVu Sans Mono"
 #let _line-size = 6.5pt
@@ -40,11 +58,15 @@
   text(size: size, weight: "bold")[#body]
 }
 
-#let _cell(colors, fill, body, align: left) = table.cell(
-  fill: fill,
-  inset: (x: 4.5pt, y: 3pt),
-  align: align,
-)[#body]
+#let _cell(colors, fill, body, align: left, stroke: auto) = {
+  let args = if stroke == auto { (:) } else { (stroke: stroke) }
+  table.cell(
+    fill: fill,
+    inset: (x: 4.5pt, y: 3pt),
+    align: align,
+    ..args,
+  )[#body]
+}
 
 #let _line-no(colors, value) = {
   if value == none {
@@ -80,25 +102,24 @@
   if span.kind == "equal" {
     body
   } else {
-    box(
+    highlight(
       fill: _span-fill(colors, span.kind),
-      inset: (x: 0.7pt, y: 0.4pt),
-      outset: (y: 0.2pt),
-      radius: 1pt,
     )[#body]
   }
 }
 
 #let _code(colors, value, spans: none) = {
-  if spans != none {
-    for span in spans {
-      _code-span(colors, span)
+  block(clip: true)[
+    #if spans != none {
+      for span in spans {
+        _code-span(colors, span)
+      }
+    } else if value == none {
+      _mono([])
+    } else {
+      _mono(value, fill: _color(colors, "text"))
     }
-  } else if value == none {
-    _mono([])
-  } else {
-    _mono(value, fill: _color(colors, "text"))
-  }
+  ]
 }
 
 #let _row-fill(colors, kind) = {
@@ -167,7 +188,7 @@
       summary: (
         fill: "collapsed",
         fg: "text",
-        label: value => str(value) + "% similar",
+        label: value => str(value) + "% similar lines",
       ),
     )
   } else if stat == "additions" {
@@ -359,19 +380,50 @@
   }
 }
 
-#let _diff-table(colors, rows, report: none) = table(
+#let _table-stroke(colors, table-style) = {
+  if table-style == "default" {
+    (x, y) => (
+      paint: _color(colors, "border"),
+      thickness: if y == 0 { 0.8pt } else { 0.45pt },
+    )
+  } else if table-style == "minimal" {
+    none
+  } else {
+    panic("table-style must be \"default\" or \"minimal\"")
+  }
+}
+
+#let _minimal-cell-stroke(colors, column, header: false) = {
+  let rule = 0.6pt + _color(colors, "border")
+  if header and column == 1 {
+    (right: rule, bottom: rule)
+  } else if header {
+    (bottom: rule)
+  } else if column == 1 {
+    (right: rule)
+  } else {
+    none
+  }
+}
+
+#let _cell-stroke(colors, table-style, column, header: false) = {
+  if table-style == "minimal" {
+    _minimal-cell-stroke(colors, column, header: header)
+  } else {
+    auto
+  }
+}
+
+#let _diff-table(colors, rows, report: none, table-style: "default") = table(
   columns: (2.4em, 1fr, 2.4em, 1fr),
-  stroke: (x, y) => (
-    paint: _color(colors, "border"),
-    thickness: if y == 0 { 0.8pt } else { 0.45pt },
-  ),
+  stroke: _table-stroke(colors, table-style),
   inset: 0pt,
   table.header(
     repeat: true,
-    _cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center),
-    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
-    _cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center),
-    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
+    _cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 0, header: true)),
+    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 1, header: true)),
+    _cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 2, header: true)),
+    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 3, header: true)),
   ),
   ..rows.map(row => {
     if row.kind == "collapsed" {
@@ -383,18 +435,18 @@
     } else {
       let fill = _row-fill(colors, row.kind)
       (
-        _cell(colors, fill, _line-no(colors, row.at("old_no", default: none)), align: right),
+        _cell(colors, fill, _line-no(colors, row.at("old_no", default: none)), align: right, stroke: _cell-stroke(colors, table-style, 0)),
         _cell(colors, fill, _code(
           colors,
           row.at("old", default: none),
           spans: row.at("old_spans", default: none),
-        )),
-        _cell(colors, fill, _line-no(colors, row.at("new_no", default: none)), align: right),
+        ), stroke: _cell-stroke(colors, table-style, 1)),
+        _cell(colors, fill, _line-no(colors, row.at("new_no", default: none)), align: right, stroke: _cell-stroke(colors, table-style, 2)),
         _cell(colors, fill, _code(
           colors,
           row.at("new", default: none),
           spans: row.at("new_spans", default: none),
-        )),
+        ), stroke: _cell-stroke(colors, table-style, 3)),
       )
     }
   }).flatten(),
@@ -661,10 +713,10 @@
   }
 }
 
-#let diffst-table(report, rows: auto, colors: (:)) = {
+#let diffst-table(report, rows: auto, colors: (:), table-style: "default") = {
   let colors = default-colors + colors
   let rows = if rows == auto { report.rows } else { rows }
-  _diff-table(colors, rows, report: report)
+  _diff-table(colors, rows, report: report, table-style: table-style)
 }
 
 #let diffst-layout(
@@ -673,6 +725,7 @@
   display: "collapsed",
   collapse-threshold: 14,
   context-lines: 3,
+  table-style: "default",
   body: auto,
 ) = {
   let colors = default-colors + colors
@@ -687,7 +740,7 @@
     block(width: 100%)[
       #_summary(colors, report)
       #v(6pt)
-      #_diff-table(colors, rows, report: report)
+      #_diff-table(colors, rows, report: report, table-style: table-style)
     ]
   } else {
     body(report, rows, colors)
@@ -712,6 +765,7 @@
     display: it.display,
     collapse-threshold: it.at("collapse-threshold"),
     context-lines: it.at("context-lines"),
+    table-style: it.at("table-style"),
   )
 }
 
@@ -732,6 +786,12 @@
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),
+    e.field("table-style", str, doc: "Table rule style: \"default\" or \"minimal\".", default: "default"),
     e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),
   ),
 )
+
+#let minimal-table(body) = {
+  show: e.set_(diffst, colors: minimal-colors, table-style: "minimal")
+  body
+}

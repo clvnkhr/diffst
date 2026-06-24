@@ -1,0 +1,7 @@
+fn summarize_observation() -> String {
+    "The first draft keeps a very long prose line with several natural spaces so Typst can wrap it inside the diff table without needing any special intervention, but it still makes the row taller and harder to scan than a manually wrapped paragraph.".to_owned()
+}
+
+let endpoint = "https://example.com/api/v1/documents/2026/06/24/reports/diffst-long-line-behavior/sections/alpha-beta-gamma-delta-epsilon-zeta-eta-theta-iota-kappa-lambda";
+
+let digest = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";

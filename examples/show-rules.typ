@@ -56,7 +56,7 @@
 #show table.cell.where(x: 0): set text(fill: rgb("#334155"), weight: "bold")
 #show table.cell.where(x: 2): set text(fill: rgb("#334155"), weight: "bold")
 #show table.cell.where(y: 0): set text(weight: "bold", fill: rgb("#f8fafc"))
-#show regex("\\b[0-9]+% similar\\b"): set text(weight: "black", fill: rgb("#7c2d12"))
+#show regex("\\b[0-9]+% similar lines\\b"): set text(weight: "black", fill: rgb("#7c2d12"))
 #show "unchanged lines hidden": set text(style: "italic", fill: rgb("#475569"))
 
 = show-rule customization
