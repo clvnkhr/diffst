@@ -7,9 +7,21 @@ wasm_minimal_protocol::initiate_protocol!();
 
 #[derive(Serialize)]
 struct DiffReport {
+    meta: DiffMeta,
     stats: DiffStats,
     ops: Vec<ReportOp>,
     rows: Vec<DiffRow>,
+}
+
+#[derive(Serialize)]
+struct DiffMeta {
+    algorithm: &'static str,
+    inline: &'static str,
+    ignore_whitespace: bool,
+    show_whitespace: bool,
+    unicode: bool,
+    semantic_cleanup: bool,
+    messages: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -58,6 +70,16 @@ enum InlineMode {
     None,
 }
 
+impl InlineMode {
+    fn name(self) -> &'static str {
+        match self {
+            InlineMode::Chars => "chars",
+            InlineMode::Words => "words",
+            InlineMode::None => "none",
+        }
+    }
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_minimal_protocol::wasm_func)]
 pub fn diff(old: &[u8], new: &[u8], options: &[u8]) -> Vec<u8> {
     match diff_impl(old, new, options) {
@@ -101,6 +123,28 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
         .unwrap_or(false);
     let old_lines = split_lines(old);
     let new_lines = split_lines(new);
+    let mut messages = Vec::new();
+    messages.push(format!("algorithm: {}", algorithm_name(algorithm)));
+    messages.push(format!("inline: {}", inline.name()));
+
+    if unicode {
+        messages.push("unicode inline tokenization enabled".to_owned());
+    } else {
+        messages.push("unicode inline tokenization disabled".to_owned());
+    }
+
+    if ignore_whitespace {
+        messages.push("line matching ignores whitespace".to_owned());
+    }
+
+    if show_whitespace {
+        messages.push("changed whitespace is rendered visibly".to_owned());
+    }
+
+    if semantic_cleanup {
+        messages.push("semantic cleanup enabled for inline spans".to_owned());
+    }
+
     let ops = capture_diff_slices_by_key(
         algorithm,
         &old_lines,
@@ -109,6 +153,15 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
     );
 
     let mut report = DiffReport {
+        meta: DiffMeta {
+            algorithm: algorithm_name(algorithm),
+            inline: inline.name(),
+            ignore_whitespace,
+            show_whitespace,
+            unicode,
+            semantic_cleanup,
+            messages,
+        },
         stats: DiffStats {
             old_lines: old_lines.len(),
             new_lines: new_lines.len(),
@@ -452,6 +505,17 @@ fn parse_algorithm(value: &str) -> Result<Algorithm, String> {
     }
 }
 
+fn algorithm_name(algorithm: Algorithm) -> &'static str {
+    match algorithm {
+        Algorithm::Myers => "myers",
+        Algorithm::Patience => "patience",
+        Algorithm::Lcs => "lcs",
+        Algorithm::Hunt => "hunt",
+        Algorithm::Histogram => "histogram",
+        _ => "unknown",
+    }
+}
+
 fn parse_inline_mode(value: &str) -> Result<InlineMode, String> {
     match value {
         "chars" => Ok(InlineMode::Chars),
@@ -709,6 +773,31 @@ mod tests {
         assert_eq!(value["rows"][0]["kind"], "replace");
         assert!(value["rows"][0]["old_spans"].is_array());
         assert!(value["rows"][0]["new_spans"].is_array());
+    }
+
+    #[test]
+    fn reports_debug_metadata() {
+        let output = diff_impl(
+            b"let x = 1\n",
+            b"let  x = 2\n",
+            br#"{"algorithm":"patience","inline":"words","unicode":false,"ignore_whitespace":true,"show_whitespace":true,"semantic_cleanup":true}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let messages = value["meta"]["messages"].as_array().unwrap();
+
+        assert_eq!(value["meta"]["algorithm"], "patience");
+        assert_eq!(value["meta"]["inline"], "words");
+        assert_eq!(value["meta"]["unicode"], false);
+        assert_eq!(value["meta"]["ignore_whitespace"], true);
+        assert_eq!(value["meta"]["show_whitespace"], true);
+        assert_eq!(value["meta"]["semantic_cleanup"], true);
+        assert!(messages
+            .iter()
+            .any(|message| message.as_str() == Some("line matching ignores whitespace")));
+        assert!(messages
+            .iter()
+            .any(|message| message.as_str() == Some("semantic cleanup enabled for inline spans")));
     }
 
     #[test]

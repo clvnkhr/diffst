@@ -208,10 +208,6 @@
   context-after: hunk.context_after,
 )
 
-#let diffst-hunks-raw(report, context-lines: 3) = {
-  diffst-hunks(report, context-lines: context-lines).map(diffst-hunk-raw)
-}
-
 #let diffst-summary-label(report, colors: (:)) = {
   let colors = default-colors + colors
   [
@@ -473,6 +469,104 @@
   }
 
   hunks
+}
+
+#let diffst-hunks-raw(report, context-lines: 3) = {
+  diffst-hunks(report, context-lines: context-lines).map(diffst-hunk-raw)
+}
+
+#let diffst-debug-raw(report, rows: auto, context-lines: 3) = {
+  let rows = if rows == auto { report.rows } else { rows }
+  let hunks = diffst-hunks-raw(report, context-lines: context-lines)
+  (
+    meta: report.meta,
+    stats: report.stats,
+    rows: diffst-row-counts-raw(rows),
+    ops: report.ops.len(),
+    hunks: hunks.len(),
+    messages: report.meta.messages,
+  )
+}
+
+#let _debug-value(value) = {
+  if value == true {
+    "true"
+  } else if value == false {
+    "false"
+  } else if value == none {
+    "none"
+  } else {
+    str(value)
+  }
+}
+
+#let _debug-row(label, value) = (
+  table.cell(fill: rgb("#f7f8fb"), inset: (x: 4pt, y: 2.5pt))[
+    #text(size: 6.7pt, weight: "bold")[#label]
+  ],
+  table.cell(inset: (x: 4pt, y: 2.5pt))[
+    #text(size: 6.7pt)[#value]
+  ],
+)
+
+#let diffst-debug(
+  report,
+  rows: auto,
+  colors: (:),
+  context-lines: 3,
+  max-messages: 8,
+) = {
+  let colors = default-colors + colors
+  let raw = diffst-debug-raw(report, rows: rows, context-lines: context-lines)
+  let row-counts = raw.rows
+  let messages = raw.messages.slice(0, calc.min(max-messages, raw.messages.len()))
+
+  block[
+    #grid(
+      columns: (1fr, auto),
+      gutter: 6pt,
+      align: horizon,
+      [
+        #text(size: 8.5pt, weight: "bold")[diffst debug]
+        #linebreak()
+        #text(size: 6.8pt, fill: _color(colors, "line-no"))[
+          #report.old #math.mapsto #report.new
+        ]
+      ],
+      diffst-pill(
+        _color(colors, "collapsed"),
+        _color(colors, "text"),
+        str(raw.ops) + " ops / " + str(row-counts.rows) + " rows",
+      ),
+    )
+    #v(5pt)
+    #table(
+      columns: (auto, 1fr),
+      stroke: _color(colors, "border"),
+      inset: (x: 4pt, y: 2.5pt),
+      .._debug-row("algorithm", raw.meta.algorithm),
+      .._debug-row("inline", raw.meta.inline),
+      .._debug-row("unicode", _debug-value(raw.meta.unicode)),
+      .._debug-row("ignore whitespace", _debug-value(raw.meta.ignore_whitespace)),
+      .._debug-row("show whitespace", _debug-value(raw.meta.show_whitespace)),
+      .._debug-row("semantic cleanup", _debug-value(raw.meta.semantic_cleanup)),
+      .._debug-row("old/new lines", str(raw.stats.old_lines) + " / " + str(raw.stats.new_lines)),
+      .._debug-row("equal lines", str(raw.stats.equal_lines)),
+      .._debug-row("line similarity", str(calc.round(raw.stats.similarity * 100)) + "%"),
+      .._debug-row("visible rows", str(row-counts.rows)),
+      .._debug-row("hidden rows", str(row-counts.hidden)),
+      .._debug-row("hunks", str(raw.hunks)),
+    )
+    #if messages.len() > 0 [
+      #v(5pt)
+      #text(size: 7pt, weight: "bold")[messages]
+      #v(2pt)
+      #for message in messages [
+        #text(size: 6.8pt, fill: _color(colors, "line-no"))[- #message]
+        #linebreak()
+      ]
+    ]
+  ]
 }
 
 #let diffst-summary(

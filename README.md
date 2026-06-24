@@ -22,6 +22,7 @@ typst compile --root . examples/custom-colors.typ
 typst compile --root . examples/show-rules.typ
 typst compile --root . examples/manual-layout.typ
 typst compile --root . examples/algorithms.typ
+typst compile --root . examples/options/debug.typ
 typst compile --root . examples/options/inline-words.typ
 ```
 
@@ -34,6 +35,7 @@ turns on one option:
   `algorithm-lcs.typ`, and `algorithm-hunt.typ`
 - `inline-chars.typ`, `inline-words.typ`, and `inline-none.typ`
 - `unicode.typ`
+- `debug.typ`
 - `semantic-cleanup.typ`
 - `ignore-whitespace.typ` and `show-whitespace.typ`
 - `display-collapsed.typ` and `display-full.typ`
@@ -125,6 +127,8 @@ arranged manually.
 ```typst
 #import "lib.typ": (
   diffst-report,
+  diffst-debug,
+  diffst-debug-raw,
   diffst-hunks,
   diffst-labels-raw,
   diffst-line-counts-raw,
@@ -163,6 +167,9 @@ arranged manually.
 )
 
 #v(8pt)
+#diffst-debug(report, rows: rows)
+
+#v(8pt)
 #diffst-table(report, rows: rows)
 ```
 
@@ -174,6 +181,12 @@ dictionaries with `ops`, `rows`, `old_start`, `old_len`, `new_start`, and
 
 `diffst-layout(report, body: (report, rows, colors) => ..)` is available when
 you want to keep the default row filtering but replace the final arrangement.
+
+`report.meta` exposes the resolved debug metadata from the WASM engine:
+`algorithm`, `inline`, `unicode`, `ignore_whitespace`, `show_whitespace`,
+`semantic_cleanup`, and a `messages` array. Use `diffst-debug(report, rows:
+..)` to render those diagnostics in the document, or `diffst-debug-raw(report,
+rows: ..)` to receive the same diagnostics as data for a custom smoke panel.
 
 For layouts that want numbers and labels instead of prebuilt content, diffst
 also exposes raw helpers:
@@ -189,6 +202,8 @@ also exposes raw helpers:
   collapsed rows.
 - `diffst-hunk-raw(hunk)` returns numeric hunk ranges and context sizes.
 - `diffst-hunks-raw(report, context-lines: ..)` returns raw hunk summaries.
+- `diffst-debug-raw(report, rows: ..)` returns metadata, stats, row counts,
+  op/hunk counts, and debug messages.
 
 The summary is also split into smaller pieces:
 
@@ -207,6 +222,8 @@ The summary is also split into smaller pieces:
 - `diffst-summary(report, title: .., stats: (..), body: ..)` keeps the default
   wrapper but lets you replace the title, choose stats, or provide a custom
   summary function with `body: (report, colors) => ..`.
+- `diffst-debug(report, rows: ..)` renders the debug metadata and messages as
+  a compact block plus table.
 
 ## Rendering Structure
 
@@ -231,6 +248,8 @@ replace each layer.
   not emit content.
 - `diffst-hunks(..)` returns hunk dictionaries with `ops` and `rows`; it does
   not emit content.
+- `diffst-debug(..)` returns a `block` containing a `grid`, a two-column
+  `table`, and text debug messages.
 - The `*-raw(..)` helpers return labels, numbers, counts, or numeric hunk
   summaries; they do not emit content.
 - `diffst-report(..)` returns data from the WASM engine plus `old` and `new`
