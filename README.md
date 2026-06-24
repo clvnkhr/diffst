@@ -33,6 +33,7 @@ typst compile --root . examples/algorithms.typ
   ignore-whitespace: true,
   show-whitespace: true,
   display: "collapsed", // or "full"
+  context-lines: 3,
 )
 ```
 
@@ -42,6 +43,10 @@ for reordered prose or code, while LCS and Hunt are useful when you want to
 compare the underlying algorithms.
 
 `show-whitespace` makes changed spaces and tabs visible inside inline highlights.
+
+`context-lines` controls how many unchanged lines are kept before and after a
+collapsed region. `collapse-threshold` controls how long an unchanged run must
+be before it is collapsed.
 
 ## Colors
 
@@ -79,7 +84,12 @@ arranged manually.
 )
 
 #let report = diffst-report("old.typ", "new.typ", show-whitespace: true)
-#let rows = diffst-rows(report, display: "collapsed", collapse-threshold: 8)
+#let rows = diffst-rows(
+  report,
+  display: "collapsed",
+  collapse-threshold: 8,
+  context-lines: 2,
+)
 
 #grid(
   columns: (1fr, auto),

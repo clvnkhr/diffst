@@ -105,9 +105,10 @@
   radius: 2pt,
 )[#text(size: 7pt, fill: fg, weight: "bold")[#body]]
 
-#let _flush_equal_run(run, threshold) = {
-  if run.len() > threshold and run.len() > 6 {
-    let keep = calc.min(3, run.len())
+#let _flush_equal_run(run, threshold, context-lines) = {
+  let keep = calc.max(0, context-lines)
+  if run.len() > threshold and run.len() > keep * 2 {
+    let keep = calc.min(keep, run.len())
     let hidden = run.len() - keep * 2
     run.slice(0, keep) + ((
       kind: "collapsed",
@@ -118,7 +119,7 @@
   }
 }
 
-#let _with-collapse(rows, threshold) = {
+#let _with-collapse(rows, threshold, context-lines) = {
   let output = ()
   let equal-run = ()
 
@@ -126,13 +127,13 @@
     if row.kind == "equal" {
       equal-run.push(row)
     } else {
-      output += _flush_equal_run(equal-run, threshold)
+      output += _flush_equal_run(equal-run, threshold, context-lines)
       equal-run = ()
       output.push(row)
     }
   }
 
-  output + _flush_equal_run(equal-run, threshold)
+  output + _flush_equal_run(equal-run, threshold, context-lines)
 }
 
 #let _summary(colors, report) = block[
@@ -143,7 +144,7 @@
     [
       #text(size: 8.5pt, weight: "bold")[#report.old]
       #h(3pt)
-      #text(fill: _color(colors, "line-no"))[->]
+      #text(fill: _color(colors, "line-no"))[#math.mapsto]
       #h(3pt)
       #text(size: 8.5pt, weight: "bold")[#report.new]
       #linebreak()
@@ -221,11 +222,20 @@
   )
 }
 
-#let diffst-rows(report, display: "collapsed", collapse-threshold: 14) = {
+#let diffst-rows(
+  report,
+  display: "collapsed",
+  collapse-threshold: 14,
+  context-lines: 3,
+) = {
+  if context-lines < 0 {
+    panic("context-lines must be greater than or equal to 0")
+  }
+
   if display == "full" {
     report.rows
   } else if display == "collapsed" {
-    _with-collapse(report.rows, collapse-threshold)
+    _with-collapse(report.rows, collapse-threshold, context-lines)
   } else {
     panic("display must be \"full\" or \"collapsed\"")
   }
@@ -247,6 +257,7 @@
   colors: (:),
   display: "collapsed",
   collapse-threshold: 14,
+  context-lines: 3,
   body: auto,
 ) = {
   let colors = default-colors + colors
@@ -254,6 +265,7 @@
     report,
     display: display,
     collapse-threshold: collapse-threshold,
+    context-lines: context-lines,
   )
 
   if body == auto {
@@ -281,6 +293,7 @@
     colors: it.colors,
     display: it.display,
     collapse-threshold: it.at("collapse-threshold"),
+    context-lines: it.at("context-lines"),
   )
 }
 
@@ -297,6 +310,7 @@
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
+    e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),
     e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),
   ),
 )

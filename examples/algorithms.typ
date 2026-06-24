@@ -13,6 +13,7 @@
     new,
     algorithm: "myers",
     collapse-threshold: 4,
+    context-lines: 2,
   )
 
   pagebreak(weak: true)
@@ -23,6 +24,7 @@
     new,
     algorithm: algorithm,
     collapse-threshold: 4,
+    context-lines: 2,
   )
 
   pagebreak(weak: true)
