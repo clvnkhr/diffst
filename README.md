@@ -20,6 +20,7 @@ typst compile --root . examples/basic.typ
 typst compile --root . examples/realistic.typ
 typst compile --root . examples/custom-colors.typ
 typst compile --root . examples/manual-layout.typ
+typst compile --root . examples/algorithms.typ
 ```
 
 ## Options
@@ -28,11 +29,17 @@ typst compile --root . examples/manual-layout.typ
 #diffst(
   "old.typ",
   "new.typ",
+  algorithm: "patience",
   ignore-whitespace: true,
   show-whitespace: true,
   display: "collapsed", // or "full"
 )
 ```
+
+`algorithm` can be `"myers"`, `"patience"`, `"lcs"`, `"hunt"`, or
+`"histogram"`. Myers is the default. Patience and histogram can be more readable
+for reordered prose or code, while LCS and Hunt are useful when you want to
+compare the underlying algorithms.
 
 `show-whitespace` makes changed spaces and tabs visible inside inline highlights.
 

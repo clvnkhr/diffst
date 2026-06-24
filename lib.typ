@@ -106,7 +106,7 @@
 )[#text(size: 7pt, fill: fg, weight: "bold")[#body]]
 
 #let _flush_equal_run(run, threshold) = {
-  if run.len() > threshold {
+  if run.len() > threshold and run.len() > 6 {
     let keep = calc.min(3, run.len())
     let hidden = run.len() - keep * 2
     run.slice(0, keep) + ((
@@ -200,12 +200,14 @@
   new,
   ignore-whitespace: false,
   show-whitespace: false,
+  algorithm: "myers",
 ) = {
   let old-content = read(old)
   let new-content = read(new)
   let options = json.encode((
     ignore_whitespace: ignore-whitespace,
     show_whitespace: show-whitespace,
+    algorithm: algorithm,
   ))
   let report = json(_engine.diff(bytes(old-content), bytes(new-content), bytes(options)))
 
@@ -271,6 +273,7 @@
     it.new,
     ignore-whitespace: it.at("ignore-whitespace"),
     show-whitespace: it.at("show-whitespace"),
+    algorithm: it.algorithm,
   )
 
   diffst-layout(
@@ -291,6 +294,7 @@
     e.field("new", str, doc: "Path to the new file.", required: true),
     e.field("ignore-whitespace", bool, doc: "Ignore whitespace while diffing lines.", default: false),
     e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly in inline highlights.", default: false),
+    e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),

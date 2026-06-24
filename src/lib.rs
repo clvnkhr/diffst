@@ -57,11 +57,17 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
         .get("show_whitespace")
         .and_then(|value| value.as_bool())
         .unwrap_or(false);
+    let algorithm = options
+        .get("algorithm")
+        .and_then(|value| value.as_str())
+        .map(parse_algorithm)
+        .transpose()?
+        .unwrap_or_default();
 
     let old_lines = split_lines(old);
     let new_lines = split_lines(new);
     let ops = capture_diff_slices_by_key(
-        Algorithm::Myers,
+        algorithm,
         &old_lines,
         &new_lines,
         |line| normalize_key(line, ignore_whitespace),
@@ -150,7 +156,7 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                     let new_line = (offset < new_len).then(|| new_lines[new_index + offset].as_str());
                     let (old_spans, new_spans) = match (old_line, new_line) {
                         (Some(old_line), Some(new_line)) => {
-                            inline_spans(old_line, new_line, show_whitespace)
+                            inline_spans(old_line, new_line, show_whitespace, algorithm)
                         }
                         (Some(old_line), None) => (
                             Some(vec![InlineSpan {
@@ -190,10 +196,11 @@ fn inline_spans(
     old_line: &str,
     new_line: &str,
     show_whitespace: bool,
+    algorithm: Algorithm,
 ) -> (Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>) {
     let old_chars = old_line.chars().collect::<Vec<_>>();
     let new_chars = new_line.chars().collect::<Vec<_>>();
-    let ops = capture_diff_slices(Algorithm::Myers, &old_chars, &new_chars);
+    let ops = capture_diff_slices(algorithm, &old_chars, &new_chars);
     let mut old_spans = Vec::new();
     let mut new_spans = Vec::new();
 
@@ -258,6 +265,19 @@ fn inline_spans(
     }
 
     (Some(old_spans), Some(new_spans))
+}
+
+fn parse_algorithm(value: &str) -> Result<Algorithm, String> {
+    match value {
+        "myers" => Ok(Algorithm::Myers),
+        "patience" => Ok(Algorithm::Patience),
+        "lcs" => Ok(Algorithm::Lcs),
+        "hunt" => Ok(Algorithm::Hunt),
+        "histogram" => Ok(Algorithm::Histogram),
+        _ => Err(format!(
+            "algorithm must be one of: myers, patience, lcs, hunt, histogram; got {value:?}"
+        )),
+    }
 }
 
 fn push_span<'a>(
@@ -385,5 +405,24 @@ mod tests {
             .unwrap()
             .iter()
             .any(|span| span["text"].as_str().unwrap().contains('·')));
+    }
+
+    #[test]
+    fn accepts_all_supported_algorithms() {
+        for algorithm in ["myers", "patience", "lcs", "hunt", "histogram"] {
+            let options = format!(r#"{{"algorithm":"{algorithm}"}}"#);
+            let output = diff_impl(b"a\nb\nc\n", b"a\nbee\nc\n", options.as_bytes()).unwrap();
+            let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+            assert_eq!(value["stats"]["deletions"], 1);
+            assert_eq!(value["stats"]["additions"], 1);
+        }
+    }
+
+    #[test]
+    fn rejects_unknown_algorithm() {
+        let err = diff_impl(b"a\n", b"b\n", br#"{"algorithm":"nope"}"#).unwrap_err();
+
+        assert!(err.contains("algorithm must be one of"));
     }
 }
