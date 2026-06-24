@@ -36,6 +36,13 @@ struct InlineSpan {
     text: String,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum InlineMode {
+    Chars,
+    Words,
+    None,
+}
+
 #[cfg_attr(target_arch = "wasm32", wasm_minimal_protocol::wasm_func)]
 pub fn diff(old: &[u8], new: &[u8], options: &[u8]) -> Vec<u8> {
     match diff_impl(old, new, options) {
@@ -63,6 +70,12 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
         .map(parse_algorithm)
         .transpose()?
         .unwrap_or_default();
+    let inline = options
+        .get("inline")
+        .and_then(|value| value.as_str())
+        .map(parse_inline_mode)
+        .transpose()?
+        .unwrap_or(InlineMode::Chars);
 
     let old_lines = split_lines(old);
     let new_lines = split_lines(new);
@@ -156,7 +169,7 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                     let new_line = (offset < new_len).then(|| new_lines[new_index + offset].as_str());
                     let (old_spans, new_spans) = match (old_line, new_line) {
                         (Some(old_line), Some(new_line)) => {
-                            inline_spans(old_line, new_line, show_whitespace, algorithm)
+                            inline_spans(old_line, new_line, show_whitespace, algorithm, inline)
                         }
                         (Some(old_line), None) => (
                             Some(vec![InlineSpan {
@@ -197,10 +210,15 @@ fn inline_spans(
     new_line: &str,
     show_whitespace: bool,
     algorithm: Algorithm,
+    inline: InlineMode,
 ) -> (Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>) {
-    let old_chars = old_line.chars().collect::<Vec<_>>();
-    let new_chars = new_line.chars().collect::<Vec<_>>();
-    let ops = capture_diff_slices(algorithm, &old_chars, &new_chars);
+    if inline == InlineMode::None {
+        return (None, None);
+    }
+
+    let old_tokens = inline_tokens(old_line, inline);
+    let new_tokens = inline_tokens(new_line, inline);
+    let ops = capture_diff_slices(algorithm, &old_tokens, &new_tokens);
     let mut old_spans = Vec::new();
     let mut new_spans = Vec::new();
 
@@ -214,13 +232,13 @@ fn inline_spans(
                 push_span(
                     &mut old_spans,
                     "equal",
-                    old_chars[old_index..old_index + len].iter(),
+                    old_tokens[old_index..old_index + len].iter(),
                     false,
                 );
                 push_span(
                     &mut new_spans,
                     "equal",
-                    new_chars[new_index..new_index + len].iter(),
+                    new_tokens[new_index..new_index + len].iter(),
                     false,
                 );
             }
@@ -228,7 +246,7 @@ fn inline_spans(
                 push_span(
                     &mut old_spans,
                     "delete",
-                    old_chars[old_index..old_index + old_len].iter(),
+                    old_tokens[old_index..old_index + old_len].iter(),
                     show_whitespace,
                 );
             }
@@ -238,7 +256,7 @@ fn inline_spans(
                 push_span(
                     &mut new_spans,
                     "insert",
-                    new_chars[new_index..new_index + new_len].iter(),
+                    new_tokens[new_index..new_index + new_len].iter(),
                     show_whitespace,
                 );
             }
@@ -251,13 +269,13 @@ fn inline_spans(
                 push_span(
                     &mut old_spans,
                     "delete",
-                    old_chars[old_index..old_index + old_len].iter(),
+                    old_tokens[old_index..old_index + old_len].iter(),
                     show_whitespace,
                 );
                 push_span(
                     &mut new_spans,
                     "insert",
-                    new_chars[new_index..new_index + new_len].iter(),
+                    new_tokens[new_index..new_index + new_len].iter(),
                     show_whitespace,
                 );
             }
@@ -265,6 +283,47 @@ fn inline_spans(
     }
 
     (Some(old_spans), Some(new_spans))
+}
+
+fn inline_tokens(line: &str, inline: InlineMode) -> Vec<String> {
+    match inline {
+        InlineMode::Chars => line.chars().map(|ch| ch.to_string()).collect(),
+        InlineMode::Words => word_tokens(line),
+        InlineMode::None => Vec::new(),
+    }
+}
+
+fn word_tokens(line: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut current_kind = None;
+
+    for ch in line.chars() {
+        let kind = token_kind(ch);
+        if current_kind.is_some_and(|active| active != kind) {
+            tokens.push(current);
+            current = String::new();
+        }
+
+        current.push(ch);
+        current_kind = Some(kind);
+    }
+
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+
+    tokens
+}
+
+fn token_kind(ch: char) -> u8 {
+    if ch.is_whitespace() {
+        0
+    } else if ch.is_alphanumeric() || ch == '_' {
+        1
+    } else {
+        2
+    }
 }
 
 fn parse_algorithm(value: &str) -> Result<Algorithm, String> {
@@ -280,14 +339,26 @@ fn parse_algorithm(value: &str) -> Result<Algorithm, String> {
     }
 }
 
+fn parse_inline_mode(value: &str) -> Result<InlineMode, String> {
+    match value {
+        "chars" => Ok(InlineMode::Chars),
+        "words" => Ok(InlineMode::Words),
+        "none" => Ok(InlineMode::None),
+        _ => Err(format!(
+            "inline must be one of: chars, words, none; got {value:?}"
+        )),
+    }
+}
+
 fn push_span<'a>(
     spans: &mut Vec<InlineSpan>,
     kind: &'static str,
-    chars: impl Iterator<Item = &'a char>,
+    tokens: impl Iterator<Item = &'a String>,
     show_whitespace: bool,
 ) {
-    let text = chars
-        .map(|ch| display_char(*ch, show_whitespace))
+    let text = tokens
+        .flat_map(|token| token.chars())
+        .map(|ch| display_char(ch, show_whitespace))
         .collect::<String>();
 
     if text.is_empty() {
@@ -408,6 +479,43 @@ mod tests {
     }
 
     #[test]
+    fn can_highlight_inline_words() {
+        let output = diff_impl(
+            b"The quick brown fox\n",
+            b"The quick amber fox\n",
+            br#"{"inline":"words"}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+        assert!(value["rows"][0]["old_spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "delete" && span["text"] == "brown"));
+        assert!(value["rows"][0]["new_spans"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|span| span["kind"] == "insert" && span["text"] == "amber"));
+    }
+
+    #[test]
+    fn can_disable_inline_spans_for_replacements() {
+        let output = diff_impl(
+            b"hello world\n",
+            b"hello typst\n",
+            br#"{"inline":"none"}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+        assert_eq!(value["rows"][0]["kind"], "replace");
+        assert!(value["rows"][0]["old_spans"].is_null());
+        assert!(value["rows"][0]["new_spans"].is_null());
+    }
+
+    #[test]
     fn accepts_all_supported_algorithms() {
         for algorithm in ["myers", "patience", "lcs", "hunt", "histogram"] {
             let options = format!(r#"{{"algorithm":"{algorithm}"}}"#);
@@ -424,5 +532,12 @@ mod tests {
         let err = diff_impl(b"a\n", b"b\n", br#"{"algorithm":"nope"}"#).unwrap_err();
 
         assert!(err.contains("algorithm must be one of"));
+    }
+
+    #[test]
+    fn rejects_unknown_inline_mode() {
+        let err = diff_impl(b"a\n", b"b\n", br#"{"inline":"letters"}"#).unwrap_err();
+
+        assert!(err.contains("inline must be one of"));
     }
 }

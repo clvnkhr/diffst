@@ -30,6 +30,7 @@ typst compile --root . examples/algorithms.typ
   "old.typ",
   "new.typ",
   algorithm: "patience",
+  inline: "words",
   ignore-whitespace: true,
   show-whitespace: true,
   display: "collapsed", // or "full"
@@ -41,6 +42,10 @@ typst compile --root . examples/algorithms.typ
 `"histogram"`. Myers is the default. Patience and histogram can be more readable
 for reordered prose or code, while LCS and Hunt are useful when you want to
 compare the underlying algorithms.
+
+`inline` controls how replaced lines are highlighted: `"chars"` highlights
+character-level edits, `"words"` highlights word/punctuation chunks, and
+`"none"` keeps only the changed-row background.
 
 `show-whitespace` makes changed spaces and tabs visible inside inline highlights.
 

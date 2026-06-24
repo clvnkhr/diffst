@@ -202,6 +202,7 @@
   ignore-whitespace: false,
   show-whitespace: false,
   algorithm: "myers",
+  inline: "chars",
 ) = {
   let old-content = read(old)
   let new-content = read(new)
@@ -209,6 +210,7 @@
     ignore_whitespace: ignore-whitespace,
     show_whitespace: show-whitespace,
     algorithm: algorithm,
+    inline: inline,
   ))
   let report = json(_engine.diff(bytes(old-content), bytes(new-content), bytes(options)))
 
@@ -286,6 +288,7 @@
     ignore-whitespace: it.at("ignore-whitespace"),
     show-whitespace: it.at("show-whitespace"),
     algorithm: it.algorithm,
+    inline: it.inline,
   )
 
   diffst-layout(
@@ -308,6 +311,7 @@
     e.field("ignore-whitespace", bool, doc: "Ignore whitespace while diffing lines.", default: false),
     e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly in inline highlights.", default: false),
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
+    e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "chars"),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),

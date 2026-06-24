@@ -8,8 +8,8 @@
 #diffst(
   "examples/paper-old.typ",
   "examples/paper-new.typ",
+  inline: "words",
   show-whitespace: true,
   display: "collapsed",
   collapse-threshold: 6,
 )
-
