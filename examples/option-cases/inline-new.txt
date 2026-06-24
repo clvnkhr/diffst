@@ -1,0 +1,3 @@
+The analysis estimates a modest but measurable effect in cohort B.
+We normalize terms before matching punctuation, spacing, and equations.
+Section 2 describes a deterministic parser for reviewer comments.

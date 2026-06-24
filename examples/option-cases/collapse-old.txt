@@ -1,0 +1,22 @@
+Abstract
+Background
+Prior work uses a short questionnaire.
+Participants completed the study remotely.
+Measurements were recorded once per day.
+The preprocessing step removed incomplete rows.
+The model used a fixed random seed.
+The first quality check verified participant identifiers.
+The second quality check verified response timestamps.
+The third quality check verified consent records.
+The fourth quality check verified exported tables.
+The fifth quality check verified figure captions.
+The sixth quality check verified appendix references.
+The seventh quality check verified bibliography entries.
+The eighth quality check verified reviewer annotations.
+The ninth quality check verified archived notebooks.
+The tenth quality check verified supplementary files.
+The analysis script generated three tables.
+Reviewers asked for clearer confidence intervals.
+The appendix contains implementation notes.
+Limitations
+Future work

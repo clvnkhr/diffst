@@ -1,0 +1,3 @@
+The analysis estimates a small but measurable effect in cohort A.
+We normalize tokens before matching punctuation, spacing, and equations.
+Section 2 describes a deterministic parser for reviewer notes.

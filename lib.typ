@@ -99,7 +99,7 @@
   }
 }
 
-#let _pill(fill, fg, body) = box(
+#let diffst-pill(fill, fg, body) = box(
   fill: fill,
   inset: (x: 5pt, y: 2pt),
   radius: 2pt,
@@ -136,28 +136,167 @@
   output + _flush_equal_run(equal-run, threshold, context-lines)
 }
 
-#let _summary(colors, report) = block[
-  #grid(
-    columns: (1fr, auto, auto, auto, auto),
-    gutter: 6pt,
-    align: horizon,
-    [
-      #text(size: 8.5pt, weight: "bold")[#report.old]
-      #h(3pt)
-      #text(fill: _color(colors, "line-no"))[#math.mapsto]
-      #h(3pt)
-      #text(size: 8.5pt, weight: "bold")[#report.new]
-      #linebreak()
-      #text(size: 6.8pt, fill: _color(colors, "line-no"))[
-        #report.stats.old_lines old lines, #report.stats.new_lines new lines
-      ]
-    ],
-    _pill(_color(colors, "header"), _color(colors, "text"), str(calc.round(report.stats.similarity * 100)) + "% similar"),
-    _pill(_color(colors, "insert"), _color(colors, "insert-text"), "+" + str(report.stats.additions)),
-    _pill(_color(colors, "delete"), _color(colors, "delete-text"), "-" + str(report.stats.deletions)),
-    _pill(_color(colors, "replace"), _color(colors, "replace-text"), str(report.stats.changed_blocks) + " changed blocks"),
+#let diffst-labels-raw(report) = (
+  old: report.old,
+  new: report.new,
+)
+
+#let diffst-line-counts-raw(report) = (
+  old: report.stats.old_lines,
+  new: report.stats.new_lines,
+)
+
+#let diffst-stat-raw(report, stat) = {
+  if stat == "similarity" {
+    calc.round(report.stats.similarity * 100)
+  } else if stat == "additions" {
+    report.stats.additions
+  } else if stat == "deletions" {
+    report.stats.deletions
+  } else if stat == "changed-blocks" {
+    report.stats.changed_blocks
+  } else if stat == "equal-lines" {
+    report.stats.equal_lines
+  } else if stat == "old-lines" {
+    report.stats.old_lines
+  } else if stat == "new-lines" {
+    report.stats.new_lines
+  } else {
+    panic("unknown raw stat: " + stat)
+  }
+}
+
+#let diffst-stats-raw(
+  report,
+  stats: ("similarity", "additions", "deletions", "changed-blocks"),
+) = {
+  stats.map(stat => (
+    key: stat,
+    value: diffst-stat-raw(report, stat),
+  ))
+}
+
+#let diffst-row-counts-raw(rows) = {
+  let hidden = 0
+  for row in rows {
+    if row.kind == "collapsed" {
+      hidden += row.hidden
+    }
+  }
+
+  (
+    rows: rows.len(),
+    equal: rows.filter(row => row.kind == "equal").len(),
+    insert: rows.filter(row => row.kind == "insert").len(),
+    delete: rows.filter(row => row.kind == "delete").len(),
+    replace: rows.filter(row => row.kind == "replace").len(),
+    collapsed: rows.filter(row => row.kind == "collapsed").len(),
+    hidden: hidden,
   )
+}
+
+#let diffst-hunk-raw(hunk) = (
+  row-start: hunk.row_start,
+  row-end: hunk.row_end,
+  rows: hunk.rows.len(),
+  ops: hunk.ops.len(),
+  old-start: hunk.old_start,
+  old-len: hunk.old_len,
+  new-start: hunk.new_start,
+  new-len: hunk.new_len,
+  context-before: hunk.context_before,
+  context-after: hunk.context_after,
+)
+
+#let diffst-hunks-raw(report, context-lines: 3) = {
+  diffst-hunks(report, context-lines: context-lines).map(diffst-hunk-raw)
+}
+
+#let diffst-summary-label(report, colors: (:)) = {
+  let colors = default-colors + colors
+  [
+    #text(size: 8.5pt, weight: "bold")[#report.old]
+    #h(3pt)
+    #text(fill: _color(colors, "line-no"))[#math.mapsto]
+    #h(3pt)
+    #text(size: 8.5pt, weight: "bold")[#report.new]
+  ]
+}
+
+#let diffst-summary-lines(report, colors: (:)) = {
+  let colors = default-colors + colors
+  text(size: 6.8pt, fill: _color(colors, "line-no"))[
+    #report.stats.old_lines old lines, #report.stats.new_lines new lines
+  ]
+}
+
+#let diffst-summary-title(report, colors: (:)) = [
+  #diffst-summary-label(report, colors: colors)
+  #linebreak()
+  #diffst-summary-lines(report, colors: colors)
 ]
+
+#let diffst-summary-stat(report, stat, colors: (:)) = {
+  let colors = default-colors + colors
+  if stat == "similarity" {
+    diffst-pill(
+      _color(colors, "collapsed"),
+      _color(colors, "text"),
+      str(calc.round(report.stats.similarity * 100)) + "% similar",
+    )
+  } else if stat == "additions" {
+    diffst-pill(
+      _color(colors, "insert"),
+      _color(colors, "insert-text"),
+      "+" + str(report.stats.additions),
+    )
+  } else if stat == "deletions" {
+    diffst-pill(
+      _color(colors, "delete"),
+      _color(colors, "delete-text"),
+      "-" + str(report.stats.deletions),
+    )
+  } else if stat == "changed-blocks" {
+    diffst-pill(
+      _color(colors, "replace"),
+      _color(colors, "replace-text"),
+      str(report.stats.changed_blocks) + " changed blocks",
+    )
+  } else {
+    panic("unknown summary stat: " + stat)
+  }
+}
+
+#let diffst-summary-stats(
+  report,
+  stats: ("similarity", "additions", "deletions", "changed-blocks"),
+  colors: (:),
+) = {
+  stats.map(stat => diffst-summary-stat(report, stat, colors: colors))
+}
+
+#let _summary(
+  colors,
+  report,
+  title: auto,
+  stats: ("similarity", "additions", "deletions", "changed-blocks"),
+) = {
+  let title = if title == auto {
+    diffst-summary-title(report, colors: colors)
+  } else {
+    title
+  }
+
+  block[
+    #grid(
+      columns: (1fr,) + stats.map(_ => auto),
+      gutter: 6pt,
+      align: horizon,
+      title,
+      ..diffst-summary-stats(report, stats: stats, colors: colors),
+    )
+  ]
+}
 
 #let _diff-table(colors, rows) = table(
   columns: (2.4em, 1fr, 2.4em, 1fr),
@@ -166,10 +305,13 @@
     thickness: if y == 0 { 0.8pt } else { 0.45pt },
   ),
   inset: 0pt,
-  _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Old], align: center),
-  _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Content]),
-  _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[New], align: center),
-  _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Content]),
+  table.header(
+    repeat: true,
+    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Old], align: center),
+    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Content]),
+    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[New], align: center),
+    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Content]),
+  ),
   ..rows.map(row => {
     if row.kind == "collapsed" {
       (
@@ -205,6 +347,7 @@
   algorithm: "myers",
   inline: "chars",
   semantic-cleanup: false,
+  deadline-ms: none,
 ) = {
   let old-content = read(old)
   let new-content = read(new)
@@ -214,6 +357,7 @@
     algorithm: algorithm,
     inline: inline,
     semantic_cleanup: semantic-cleanup,
+    deadline_ms: deadline-ms,
   ))
   let report = json(_engine.diff(bytes(old-content), bytes(new-content), bytes(options)))
 
@@ -331,9 +475,19 @@
   hunks
 }
 
-#let diffst-summary(report, colors: (:)) = {
+#let diffst-summary(
+  report,
+  colors: (:),
+  title: auto,
+  stats: ("similarity", "additions", "deletions", "changed-blocks"),
+  body: auto,
+) = {
   let colors = default-colors + colors
-  _summary(colors, report)
+  if body == auto {
+    _summary(colors, report, title: title, stats: stats)
+  } else {
+    body(report, colors)
+  }
 }
 
 #let diffst-table(report, rows: auto, colors: (:)) = {
@@ -378,6 +532,7 @@
     algorithm: it.algorithm,
     inline: it.inline,
     semantic-cleanup: it.at("semantic-cleanup"),
+    deadline-ms: it.at("deadline-ms"),
   )
 
   diffst-layout(
@@ -402,6 +557,7 @@
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
     e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "chars"),
     e.field("semantic-cleanup", bool, doc: "Run similar's semantic cleanup pass on inline highlights.", default: false),
+    e.field("deadline-ms", e.types.option(int), doc: "Optional diff deadline in milliseconds. Defaults to none.", default: none),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),

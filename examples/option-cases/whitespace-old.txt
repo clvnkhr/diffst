@@ -1,0 +1,4 @@
+let threshold = 0.050
+let label     = "control"
+for value in measurements:
+    record(value)

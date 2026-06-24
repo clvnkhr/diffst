@@ -19,9 +19,30 @@ cargo build --release --target wasm32-unknown-unknown
 typst compile --root . examples/basic.typ
 typst compile --root . examples/realistic.typ
 typst compile --root . examples/custom-colors.typ
+typst compile --root . examples/show-rules.typ
 typst compile --root . examples/manual-layout.typ
 typst compile --root . examples/algorithms.typ
+typst compile --root . examples/options/inline-words.typ
 ```
+
+## Examples
+
+The `examples/options/` directory contains focused examples where each file
+turns on one option:
+
+- `algorithm-myers.typ`, `algorithm-patience.typ`, `algorithm-histogram.typ`,
+  `algorithm-lcs.typ`, and `algorithm-hunt.typ`
+- `inline-chars.typ`, `inline-words.typ`, and `inline-none.typ`
+- `semantic-cleanup.typ`
+- `ignore-whitespace.typ` and `show-whitespace.typ`
+- `display-collapsed.typ` and `display-full.typ`
+- `context-lines.typ`
+- `collapse-threshold.typ`
+- `deadline-ms.typ`
+
+`examples/custom-colors.typ` shows color overrides, and
+`examples/show-rules.typ` shows Typst show rules for styling the rendered
+blocks, tables, cells, and fonts around a report.
 
 ## Options
 
@@ -32,6 +53,7 @@ typst compile --root . examples/algorithms.typ
   algorithm: "patience",
   inline: "words",
   semantic-cleanup: true,
+  deadline-ms: 10000,
   ignore-whitespace: true,
   show-whitespace: true,
   display: "collapsed", // or "full"
@@ -50,6 +72,12 @@ character-level edits, `"words"` highlights word/punctuation chunks, and
 
 `semantic-cleanup` runs an extra cleanup pass on inline highlights to shift
 highlight boundaries toward more readable chunks.
+
+`deadline-ms` optionally forwards a millisecond deadline to the WASM diff
+engine's deadline-aware algorithm hooks. It defaults to `none`, because diffst
+prioritizes quality over speed. Typst plugins currently do not expose a host
+clock to WASM, so this is best-effort in the current PDF path rather than a
+hard wall-clock cutoff.
 
 `show-whitespace` makes changed spaces and tabs visible inside inline highlights.
 
@@ -92,13 +120,21 @@ arranged manually.
 #import "lib.typ": (
   diffst-report,
   diffst-hunks,
+  diffst-labels-raw,
+  diffst-line-counts-raw,
   diffst-rows,
+  diffst-stat-raw,
   diffst-summary,
+  diffst-summary-stat,
+  diffst-summary-title,
   diffst-table,
 )
 
 #let report = diffst-report("old.typ", "new.typ", show-whitespace: true)
 #let hunks = diffst-hunks(report, context-lines: 2)
+#let labels = diffst-labels-raw(report)
+#let lines = diffst-line-counts-raw(report)
+#let similarity = diffst-stat-raw(report, "similarity")
 #let rows = diffst-rows(
   report,
   display: "collapsed",
@@ -108,8 +144,16 @@ arranged manually.
 
 #grid(
   columns: (1fr, auto),
-  [#diffst-summary(report)],
-  [Reviewed by CK],
+  [#diffst-summary(report, stats: ("similarity", "additions"))],
+  [
+    #align(right)[
+      #labels.old -> #labels.new\
+      #lines.old old lines, #lines.new new lines\
+      #similarity% similar\
+      #linebreak()
+      #diffst-summary-stat(report, "changed-blocks")
+    ]
+  ],
 )
 
 #v(8pt)
@@ -125,6 +169,39 @@ dictionaries with `ops`, `rows`, `old_start`, `old_len`, `new_start`, and
 `diffst-layout(report, body: (report, rows, colors) => ..)` is available when
 you want to keep the default row filtering but replace the final arrangement.
 
+For layouts that want numbers and labels instead of prebuilt content, diffst
+also exposes raw helpers:
+
+- `diffst-labels-raw(report)` returns `(old, new)`.
+- `diffst-line-counts-raw(report)` returns `(old, new)` line counts.
+- `diffst-stat-raw(report, "similarity")` returns one number. Supported raw
+  stats are `"similarity"`, `"additions"`, `"deletions"`, `"changed-blocks"`,
+  `"equal-lines"`, `"old-lines"`, and `"new-lines"`.
+- `diffst-stats-raw(report, stats: (..))` returns an array of
+  `(key, value)` dictionaries.
+- `diffst-row-counts-raw(rows)` returns visible row counts by kind plus hidden
+  collapsed rows.
+- `diffst-hunk-raw(hunk)` returns numeric hunk ranges and context sizes.
+- `diffst-hunks-raw(report, context-lines: ..)` returns raw hunk summaries.
+
+The summary is also split into smaller pieces:
+
+- `diffst-summary-title(report, colors: ..)` combines the file label and line
+  counts.
+- `diffst-summary-label(report, colors: ..)` renders only the file labels.
+- `diffst-summary-lines(report, colors: ..)` renders only the old/new line
+  counts.
+- `diffst-summary-stat(report, "similarity", colors: ..)` renders one stat
+  pill. Supported stats are `"similarity"`, `"additions"`, `"deletions"`, and
+  `"changed-blocks"`.
+- `diffst-summary-stats(report, stats: (..), colors: ..)` returns an array of
+  stat pills that can be spread into your own grid or stack.
+- `diffst-pill(fill, fg, body)` is the small filled `box` primitive used by the
+  default stats.
+- `diffst-summary(report, title: .., stats: (..), body: ..)` keeps the default
+  wrapper but lets you replace the title, choose stats, or provide a custom
+  summary function with `body: (report, colors) => ..`.
+
 ## Rendering Structure
 
 The default renderer is ordinary Typst content, so custom layouts can wrap or
@@ -135,8 +212,10 @@ replace each layer.
 - `diffst-layout(..)` returns a `block(width: 100%)` containing the summary,
   vertical spacing, and the diff table. If `body` is supplied, it calls
   `body(report, rows, colors)` instead.
-- `diffst-summary(..)` returns a `block` containing a `grid`. The file labels
-  and line counts are text, and the stats are small filled `box` pills.
+- `diffst-summary(..)` returns a `block` containing a `grid`. It is composed
+  from `diffst-summary-title(..)` and `diffst-summary-stats(..)`. The file
+  labels and line counts are text, and the stats are small filled `box` pills
+  created by `diffst-pill(..)`.
 - `diffst-table(..)` returns a `table` with four columns: old line number, old
   content, new line number, and new content. Header, line number, content, and
   collapsed rows are `table.cell`s.
@@ -146,5 +225,7 @@ replace each layer.
   not emit content.
 - `diffst-hunks(..)` returns hunk dictionaries with `ops` and `rows`; it does
   not emit content.
+- The `*-raw(..)` helpers return labels, numbers, counts, or numeric hunk
+  summaries; they do not emit content.
 - `diffst-report(..)` returns data from the WASM engine plus `old` and `new`
   labels; it does not emit content.
