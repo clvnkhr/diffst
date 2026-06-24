@@ -1,0 +1,41 @@
+#import "@preview/elembic:1.1.1" as e
+#import "../lib.typ": diffst, default-colors
+
+#set page(width: 297mm, height: 210mm, margin: 12mm)
+#set text(font: "New Computer Modern", size: 9pt)
+
+#let ocean-colors = default-colors + (
+  header: rgb("#dbeafe"),
+  border: rgb("#93c5fd"),
+  delete: rgb("#fee2e2"),
+  insert: rgb("#dcfce7"),
+  replace: rgb("#e0f2fe"),
+  inline-delete: rgb("#fca5a5"),
+  inline-insert: rgb("#86efac"),
+  replace-text: rgb("#075985"),
+)
+
+#show: e.set_(diffst, colors: ocean-colors)
+
+= custom diffst colors
+
+#diffst(
+  "examples/old.typ",
+  "examples/new.typ",
+  show-whitespace: true,
+)
+
+#pagebreak()
+
+= one-off override
+
+#diffst(
+  "examples/old.typ",
+  "examples/new.typ",
+  colors: (
+    replace: rgb("#fef3c7"),
+    inline-delete: rgb("#f0abfc"),
+    inline-insert: rgb("#67e8f9"),
+  ),
+)
+
