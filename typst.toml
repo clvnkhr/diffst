@@ -1,0 +1,8 @@
+[package]
+name = "diffst"
+version = "0.1.0"
+entrypoint = "lib.typ"
+authors = ["Calvin Khor"]
+license = "MIT"
+description = "Side-by-side document diff reports for Typst."
+
