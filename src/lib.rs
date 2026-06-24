@@ -23,6 +23,8 @@ struct DiffMeta {
     semantic_cleanup: bool,
     old_trailing_newline: bool,
     new_trailing_newline: bool,
+    old_line_endings: &'static str,
+    new_line_endings: &'static str,
     messages: Vec<String>,
 }
 
@@ -73,6 +75,7 @@ enum InlineMode {
 }
 
 #[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct RawOptions {
     #[serde(default)]
     ignore_whitespace: bool,
@@ -129,6 +132,7 @@ struct LineInput<'a> {
     text: &'a str,
     lines: Vec<String>,
     trailing_newline: bool,
+    line_endings: &'static str,
 }
 
 impl<'a> LineInput<'a> {
@@ -137,6 +141,7 @@ impl<'a> LineInput<'a> {
             text,
             lines: split_lines(text),
             trailing_newline: text.ends_with('\n'),
+            line_endings: line_ending_style(text),
         }
     }
 }
@@ -391,6 +396,13 @@ fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: &Options) -> Di
         messages.push("files differ only by trailing newline".to_owned());
     }
 
+    if old.line_endings != new.line_endings {
+        messages.push(format!(
+            "line endings differ: {} -> {}",
+            old.line_endings, new.line_endings
+        ));
+    }
+
     DiffMeta {
         algorithm: algorithm_name(options.algorithm),
         inline: options.inline.name(),
@@ -400,6 +412,8 @@ fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: &Options) -> Di
         semantic_cleanup: options.semantic_cleanup,
         old_trailing_newline: old.trailing_newline,
         new_trailing_newline: new.trailing_newline,
+        old_line_endings: old.line_endings,
+        new_line_endings: new.line_endings,
         messages,
     }
 }
@@ -721,6 +735,39 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
+fn line_ending_style(text: &str) -> &'static str {
+    let bytes = text.as_bytes();
+    let mut index = 0;
+    let mut lf = 0;
+    let mut crlf = 0;
+    let mut cr = 0;
+
+    while index < bytes.len() {
+        if bytes[index] == b'\r' {
+            if bytes.get(index + 1) == Some(&b'\n') {
+                crlf += 1;
+                index += 2;
+            } else {
+                cr += 1;
+                index += 1;
+            }
+        } else if bytes[index] == b'\n' {
+            lf += 1;
+            index += 1;
+        } else {
+            index += 1;
+        }
+    }
+
+    match (lf > 0, crlf > 0, cr > 0) {
+        (false, false, false) => "none",
+        (true, false, false) => "lf",
+        (false, true, false) => "crlf",
+        (false, false, true) => "cr",
+        _ => "mixed",
+    }
+}
+
 fn normalize_key(line: &str) -> String {
     line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
@@ -938,9 +985,24 @@ mod tests {
 
         assert_eq!(value["meta"]["old_trailing_newline"], true);
         assert_eq!(value["meta"]["new_trailing_newline"], false);
+        assert_eq!(value["meta"]["old_line_endings"], "lf");
+        assert_eq!(value["meta"]["new_line_endings"], "none");
         assert!(messages
             .iter()
             .any(|message| message.as_str() == Some("files differ only by trailing newline")));
+    }
+
+    #[test]
+    fn reports_line_ending_metadata() {
+        let output = diff_impl(b"a\r\nb\r\n", b"a\nb\n", br#"{}"#).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let messages = value["meta"]["messages"].as_array().unwrap();
+
+        assert_eq!(value["meta"]["old_line_endings"], "crlf");
+        assert_eq!(value["meta"]["new_line_endings"], "lf");
+        assert!(messages
+            .iter()
+            .any(|message| message.as_str() == Some("line endings differ: crlf -> lf")));
     }
 
     #[test]
@@ -981,5 +1043,13 @@ mod tests {
         let err = diff_impl(b"a\n", b"b\n", br#"{"unicode":"false"}"#).unwrap_err();
 
         assert!(err.contains("invalid options JSON"));
+    }
+
+    #[test]
+    fn rejects_unknown_option_keys() {
+        let err = diff_impl(b"a\n", b"b\n", br#"{"semantic_cleaup":true}"#).unwrap_err();
+
+        assert!(err.contains("invalid options JSON"));
+        assert!(err.contains("unknown field"));
     }
 }

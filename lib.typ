@@ -336,7 +336,30 @@
   ]
 }
 
-#let _diff-table(colors, rows) = table(
+#let _trailing-newline-rows(colors, report) = {
+  if report == none or report.meta.old_trailing_newline == report.meta.new_trailing_newline {
+    ()
+  } else {
+    let old-state = if report.meta.old_trailing_newline {
+      "old file ends with a newline"
+    } else {
+      "old file has no trailing newline"
+    }
+    let new-state = if report.meta.new_trailing_newline {
+      "new file ends with a newline"
+    } else {
+      "new file has no trailing newline"
+    }
+
+    (
+      table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
+        #_muted(colors, [#old-state; #new-state], size: _line-size)
+      ],
+    )
+  }
+}
+
+#let _diff-table(colors, rows, report: none) = table(
   columns: (2.4em, 1fr, 2.4em, 1fr),
   stroke: (x, y) => (
     paint: _color(colors, "border"),
@@ -375,6 +398,7 @@
       )
     }
   }).flatten(),
+  .._trailing-newline-rows(colors, report),
 )
 
 #let diffst-report(
@@ -601,6 +625,8 @@
       .._debug-row(colors, "semantic cleanup", _debug-value(raw.meta.semantic_cleanup)),
       .._debug-row(colors, "old trailing newline", _debug-value(raw.meta.old_trailing_newline)),
       .._debug-row(colors, "new trailing newline", _debug-value(raw.meta.new_trailing_newline)),
+      .._debug-row(colors, "old line endings", raw.meta.old_line_endings),
+      .._debug-row(colors, "new line endings", raw.meta.new_line_endings),
       .._debug-row(colors, "old/new lines", str(raw.stats.old_lines) + " / " + str(raw.stats.new_lines)),
       .._debug-row(colors, "equal lines", str(raw.stats.equal_lines)),
       .._debug-row(colors, "line similarity", str(calc.round(raw.stats.similarity * 100)) + "%"),
@@ -638,7 +664,7 @@
 #let diffst-table(report, rows: auto, colors: (:)) = {
   let colors = default-colors + colors
   let rows = if rows == auto { report.rows } else { rows }
-  _diff-table(colors, rows)
+  _diff-table(colors, rows, report: report)
 }
 
 #let diffst-layout(
@@ -661,7 +687,7 @@
     block(width: 100%)[
       #_summary(colors, report)
       #v(6pt)
-      #_diff-table(colors, rows)
+      #_diff-table(colors, rows, report: report)
     ]
   } else {
     body(report, rows, colors)

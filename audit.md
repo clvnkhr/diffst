@@ -14,6 +14,13 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
   descriptor source for values and summary rendering metadata.
 - Item 10: Rust report rows now borrow line strings during serialization instead
   of cloning every row's old/new text.
+- Item 4: `report.meta` now includes `old_line_endings` and
+  `new_line_endings` values (`lf`, `crlf`, `cr`, `mixed`, or `none`), and the
+  debug panel renders them.
+- Item 2: WASM options now use `#[serde(deny_unknown_fields)]`, with a
+  regression test for misspelled option keys.
+- Item 3: The default table now renders a visible note when trailing-newline
+  presence differs.
 
 ## Findings
 
@@ -27,39 +34,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
   generate the WASM artifact into a stable package path such as `plugin.wasm`,
   then load that from `lib.typ`.
 
-### 2. Unknown WASM option keys are still silently ignored
-
-- `src/lib.rs:75-89` deserializes into `RawOptions`, but the struct does not use
-  `#[serde(deny_unknown_fields)]`.
-- Wrong value types now fail, which is good, but misspelled keys still disappear:
-  `{"semantic_cleaup": true}` would run with cleanup disabled and no warning.
-- Suggested fix: add `#[serde(deny_unknown_fields)]` to `RawOptions` and add a
-  regression test for a misspelled key.
-
-### 3. Trailing-newline differences are metadata-only
-
-- `src/lib.rs:390-402` records `old_trailing_newline` and
-  `new_trailing_newline`, and `lib.typ:599-600` shows those fields in the debug
-  panel.
-- The main table still renders `a\n` versus `a` as a fully equal row with `100%`
-  similarity. For users looking only at the report, the diff can claim equality
-  while the files differ.
-- Suggested fix: either render a small table row/message for trailing-newline
-  differences, or explicitly document that the default table is line-content
-  oriented and newline fidelity lives in `report.meta`.
-
-### 4. Line-ending fidelity is still lossy
-
-- `src/lib.rs:711-721` strips `\r` from every split line, and trailing-newline
-  metadata only checks `text.ends_with('\n')`.
-- That normalizes CRLF and LF, and it can also hide a literal carriage return at
-  the end of a line. This may be acceptable for presentational document diffs,
-  but it should be a conscious contract.
-- Suggested fix: add metadata for line-ending style or document normalization
-  behavior clearly. If patch-like fidelity matters, preserve raw line
-  terminators separately from rendered line content.
-
-### 5. Smoke tests compile examples but do not assert rendered content
+### 2. Smoke tests compile examples but do not assert rendered content
 
 - `scripts/smoke.sh:10-12` compiles every example to a PDF, which is a useful
   syntax/integration check.
@@ -69,7 +44,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
   and `diffst-row-counts-raw`; optionally export a few stable examples to SVG or
   PNG for snapshot comparison.
 
-### 6. Theme customization stops at colors
+### 3. Theme customization stops at colors
 
 - `lib.typ:23-40` centralizes typography constants, which is cleaner, but font
   family and sizes are still private constants.
@@ -80,7 +55,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
   typography/padding fields on the Elembic element if styling flexibility is a
   package goal.
 
-### 7. Error messages expose Rust/serde wording directly
+### 4. Error messages expose Rust/serde wording directly
 
 - `Options::from_json` in `src/lib.rs:101-103` wraps serde errors as
   `invalid options JSON: ...`.
@@ -89,7 +64,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
 - Suggested fix: keep serde for validation, but add targeted tests for the most
   common user mistakes and decide whether the raw messages are acceptable.
 
-### 8. `algorithm_name` has an unreachable fallback
+### 5. `algorithm_name` has an unreachable fallback
 
 - `src/lib.rs:646-654` returns `"unknown"` for algorithms outside the known
   variants.

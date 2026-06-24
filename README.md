@@ -93,6 +93,10 @@ when the lines are visually similar. In manual layouts, use
 `report.stats.similarity` for a `0.0` to `1.0` ratio and
 `report.stats.equal_lines` for the matched-line count.
 
+The default table compares rendered line content and adds a note when only the
+final trailing newline differs. Raw newline and line-ending details are exposed
+through `report.meta`.
+
 ## Colors
 
 `diffst` is an Elembic element, so colors can be changed for one report or set
@@ -180,10 +184,12 @@ you want to keep the default row filtering but replace the final arrangement.
 
 `report.meta` exposes the resolved debug metadata from the WASM engine:
 `algorithm`, `inline`, `unicode`, `ignore_whitespace`, `show_whitespace`,
-`semantic_cleanup`, `old_trailing_newline`, `new_trailing_newline`, and a
-`messages` array. Use `diffst-debug(report, rows: ..)` to render those
-diagnostics in the document, or `diffst-debug-raw(report, rows: ..)` to receive
-the same diagnostics as data for a custom smoke panel.
+`semantic_cleanup`, `old_trailing_newline`, `new_trailing_newline`,
+`old_line_endings`, `new_line_endings`, and a `messages` array. Line ending
+values are `"lf"`, `"crlf"`, `"cr"`, `"mixed"`, or `"none"`. Use
+`diffst-debug(report, rows: ..)` to render those diagnostics in the document, or
+`diffst-debug-raw(report, rows: ..)` to receive the same diagnostics as data for
+a custom smoke panel.
 
 For layouts that want numbers and labels instead of prebuilt content, diffst
 also exposes raw helpers:
