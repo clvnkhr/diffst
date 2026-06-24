@@ -1,16 +1,16 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use similar::algorithms::{diff_slices, Capture, Compact, Replace};
-use similar::{capture_diff_slices, capture_diff_slices_by_key, Algorithm, DiffOp, DiffableStr};
+use similar::{capture_diff_slices, Algorithm, DiffOp, DiffableStr};
 
 #[cfg(target_arch = "wasm32")]
 wasm_minimal_protocol::initiate_protocol!();
 
 #[derive(Serialize)]
-struct DiffReport {
+struct DiffReport<'a> {
     meta: DiffMeta,
     stats: DiffStats,
     ops: Vec<ReportOp>,
-    rows: Vec<DiffRow>,
+    rows: Vec<DiffRow<'a>>,
 }
 
 #[derive(Serialize)]
@@ -21,6 +21,8 @@ struct DiffMeta {
     show_whitespace: bool,
     unicode: bool,
     semantic_cleanup: bool,
+    old_trailing_newline: bool,
+    new_trailing_newline: bool,
     messages: Vec<String>,
 }
 
@@ -36,13 +38,13 @@ struct DiffStats {
 }
 
 #[derive(Serialize)]
-struct DiffRow {
+struct DiffRow<'a> {
     kind: &'static str,
     old_no: Option<usize>,
-    old: Option<String>,
+    old: Option<&'a str>,
     old_spans: Option<Vec<InlineSpan>>,
     new_no: Option<usize>,
-    new: Option<String>,
+    new: Option<&'a str>,
     new_spans: Option<Vec<InlineSpan>>,
 }
 
@@ -70,6 +72,235 @@ enum InlineMode {
     None,
 }
 
+#[derive(Deserialize)]
+struct RawOptions {
+    #[serde(default)]
+    ignore_whitespace: bool,
+    #[serde(default)]
+    show_whitespace: bool,
+    #[serde(default = "default_algorithm")]
+    algorithm: String,
+    #[serde(default = "default_inline")]
+    inline: String,
+    #[serde(default = "default_unicode")]
+    unicode: bool,
+    #[serde(default)]
+    semantic_cleanup: bool,
+}
+
+struct Options {
+    ignore_whitespace: bool,
+    show_whitespace: bool,
+    algorithm: Algorithm,
+    inline: InlineMode,
+    unicode: bool,
+    semantic_cleanup: bool,
+}
+
+impl Options {
+    fn from_json(bytes: &[u8]) -> Result<Self, String> {
+        let raw: RawOptions =
+            serde_json::from_slice(bytes).map_err(|err| format!("invalid options JSON: {err}"))?;
+
+        Ok(Self {
+            ignore_whitespace: raw.ignore_whitespace,
+            show_whitespace: raw.show_whitespace,
+            algorithm: parse_algorithm(&raw.algorithm)?,
+            inline: parse_inline_mode(&raw.inline)?,
+            unicode: raw.unicode,
+            semantic_cleanup: raw.semantic_cleanup,
+        })
+    }
+}
+
+fn default_algorithm() -> String {
+    "myers".to_owned()
+}
+
+fn default_inline() -> String {
+    "chars".to_owned()
+}
+
+fn default_unicode() -> bool {
+    true
+}
+
+struct LineInput<'a> {
+    text: &'a str,
+    lines: Vec<String>,
+    trailing_newline: bool,
+}
+
+impl<'a> LineInput<'a> {
+    fn new(text: &'a str) -> Self {
+        Self {
+            text,
+            lines: split_lines(text),
+            trailing_newline: text.ends_with('\n'),
+        }
+    }
+}
+
+struct ReportBuilder<'a> {
+    report: DiffReport<'a>,
+    old_lines: &'a [String],
+    new_lines: &'a [String],
+    options: &'a Options,
+}
+
+impl<'a> ReportBuilder<'a> {
+    fn new(old: &'a LineInput<'a>, new: &'a LineInput<'a>, options: &'a Options) -> Self {
+        Self {
+            report: DiffReport {
+                meta: build_meta(old, new, options),
+                stats: DiffStats {
+                    old_lines: old.lines.len(),
+                    new_lines: new.lines.len(),
+                    additions: 0,
+                    deletions: 0,
+                    changed_blocks: 0,
+                    equal_lines: 0,
+                    similarity: 1.0,
+                },
+                ops: Vec::new(),
+                rows: Vec::new(),
+            },
+            old_lines: &old.lines,
+            new_lines: &new.lines,
+            options,
+        }
+    }
+
+    fn push_op(
+        &mut self,
+        kind: &'static str,
+        old_start: usize,
+        old_len: usize,
+        new_start: usize,
+        new_len: usize,
+        row_start: usize,
+    ) {
+        self.report.ops.push(ReportOp {
+            kind,
+            old_start,
+            old_len,
+            new_start,
+            new_len,
+            row_start,
+            row_len: self.report.rows.len() - row_start,
+        });
+    }
+
+    fn push_equal(&mut self, old_index: usize, new_index: usize, len: usize) {
+        let row_start = self.report.rows.len();
+        self.report.stats.equal_lines += len;
+
+        for offset in 0..len {
+            self.report.rows.push(DiffRow {
+                kind: "equal",
+                old_no: Some(old_index + offset + 1),
+                old: Some(self.old_lines[old_index + offset].as_str()),
+                old_spans: None,
+                new_no: Some(new_index + offset + 1),
+                new: Some(self.new_lines[new_index + offset].as_str()),
+                new_spans: None,
+            });
+        }
+
+        self.push_op("equal", old_index + 1, len, new_index + 1, len, row_start);
+    }
+
+    fn push_delete(&mut self, old_index: usize, old_len: usize) {
+        let row_start = self.report.rows.len();
+        self.report.stats.changed_blocks += 1;
+        self.report.stats.deletions += old_len;
+
+        for offset in 0..old_len {
+            let old_line = &self.old_lines[old_index + offset];
+            self.report.rows.push(DiffRow {
+                kind: "delete",
+                old_no: Some(old_index + offset + 1),
+                old: Some(old_line.as_str()),
+                old_spans: Some(vec![deleted_span(old_line, self.options.show_whitespace)]),
+                new_no: None,
+                new: None,
+                new_spans: None,
+            });
+        }
+
+        self.push_op("delete", old_index + 1, old_len, 0, 0, row_start);
+    }
+
+    fn push_insert(&mut self, new_index: usize, new_len: usize) {
+        let row_start = self.report.rows.len();
+        self.report.stats.changed_blocks += 1;
+        self.report.stats.additions += new_len;
+
+        for offset in 0..new_len {
+            let new_line = &self.new_lines[new_index + offset];
+            self.report.rows.push(DiffRow {
+                kind: "insert",
+                old_no: None,
+                old: None,
+                old_spans: None,
+                new_no: Some(new_index + offset + 1),
+                new: Some(new_line.as_str()),
+                new_spans: Some(vec![inserted_span(new_line, self.options.show_whitespace)]),
+            });
+        }
+
+        self.push_op("insert", 0, 0, new_index + 1, new_len, row_start);
+    }
+
+    fn push_replace(
+        &mut self,
+        old_index: usize,
+        old_len: usize,
+        new_index: usize,
+        new_len: usize,
+    ) -> Result<(), String> {
+        let row_start = self.report.rows.len();
+        self.report.stats.changed_blocks += 1;
+        self.report.stats.deletions += old_len;
+        self.report.stats.additions += new_len;
+
+        for offset in 0..old_len.max(new_len) {
+            let old_line = (offset < old_len).then(|| self.old_lines[old_index + offset].as_str());
+            let new_line = (offset < new_len).then(|| self.new_lines[new_index + offset].as_str());
+            let (old_spans, new_spans) = replace_spans(old_line, new_line, self.options)?;
+
+            self.report.rows.push(DiffRow {
+                kind: "replace",
+                old_no: (offset < old_len).then_some(old_index + offset + 1),
+                old: (offset < old_len).then(|| self.old_lines[old_index + offset].as_str()),
+                old_spans,
+                new_no: (offset < new_len).then_some(new_index + offset + 1),
+                new: (offset < new_len).then(|| self.new_lines[new_index + offset].as_str()),
+                new_spans,
+            });
+        }
+
+        self.push_op(
+            "replace",
+            old_index + 1,
+            old_len,
+            new_index + 1,
+            new_len,
+            row_start,
+        );
+        Ok(())
+    }
+
+    fn finish(mut self) -> DiffReport<'a> {
+        self.report.stats.similarity = similarity_score(
+            self.report.stats.equal_lines,
+            self.report.stats.old_lines,
+            self.report.stats.new_lines,
+        );
+        self.report
+    }
+}
+
 impl InlineMode {
     fn name(self) -> &'static str {
         match self {
@@ -84,255 +315,114 @@ impl InlineMode {
 pub fn diff(old: &[u8], new: &[u8], options: &[u8]) -> Vec<u8> {
     match diff_impl(old, new, options) {
         Ok(bytes) => bytes,
-        Err(message) => serde_json::json!({ "error": message }).to_string().into_bytes(),
+        Err(message) => serde_json::json!({ "error": message })
+            .to_string()
+            .into_bytes(),
     }
 }
 
 fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> {
     let old = std::str::from_utf8(old).map_err(|_| "old file is not valid UTF-8")?;
     let new = std::str::from_utf8(new).map_err(|_| "new file is not valid UTF-8")?;
-    let options: serde_json::Value =
-        serde_json::from_slice(options).unwrap_or_else(|_| serde_json::json!({}));
-    let ignore_whitespace = options
-        .get("ignore_whitespace")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let show_whitespace = options
-        .get("show_whitespace")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let algorithm = options
-        .get("algorithm")
-        .and_then(|value| value.as_str())
-        .map(parse_algorithm)
-        .transpose()?
-        .unwrap_or_default();
-    let inline = options
-        .get("inline")
-        .and_then(|value| value.as_str())
-        .map(parse_inline_mode)
-        .transpose()?
-        .unwrap_or(InlineMode::Chars);
-    let unicode = options
-        .get("unicode")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(true);
-    let semantic_cleanup = options
-        .get("semantic_cleanup")
-        .and_then(|value| value.as_bool())
-        .unwrap_or(false);
-    let old_lines = split_lines(old);
-    let new_lines = split_lines(new);
-    let mut messages = Vec::new();
-    messages.push(format!("algorithm: {}", algorithm_name(algorithm)));
-    messages.push(format!("inline: {}", inline.name()));
-
-    if unicode {
-        messages.push("unicode inline tokenization enabled".to_owned());
-    } else {
-        messages.push("unicode inline tokenization disabled".to_owned());
-    }
-
-    if ignore_whitespace {
-        messages.push("line matching ignores whitespace".to_owned());
-    }
-
-    if show_whitespace {
-        messages.push("changed whitespace is rendered visibly".to_owned());
-    }
-
-    if semantic_cleanup {
-        messages.push("semantic cleanup enabled for inline spans".to_owned());
-    }
-
-    let ops = capture_diff_slices_by_key(
-        algorithm,
-        &old_lines,
-        &new_lines,
-        |line| normalize_key(line, ignore_whitespace),
+    let options = Options::from_json(options)?;
+    let old = LineInput::new(old);
+    let new = LineInput::new(new);
+    let ops = line_ops(
+        options.algorithm,
+        options.ignore_whitespace,
+        &old.lines,
+        &new.lines,
     );
-
-    let mut report = DiffReport {
-        meta: DiffMeta {
-            algorithm: algorithm_name(algorithm),
-            inline: inline.name(),
-            ignore_whitespace,
-            show_whitespace,
-            unicode,
-            semantic_cleanup,
-            messages,
-        },
-        stats: DiffStats {
-            old_lines: old_lines.len(),
-            new_lines: new_lines.len(),
-            additions: 0,
-            deletions: 0,
-            changed_blocks: 0,
-            equal_lines: 0,
-            similarity: 1.0,
-        },
-        ops: Vec::new(),
-        rows: Vec::new(),
-    };
+    let mut builder = ReportBuilder::new(&old, &new, &options);
 
     for op in ops {
-        let row_start = report.rows.len();
         match op {
             DiffOp::Equal {
                 old_index,
                 new_index,
                 len,
+            } => builder.push_equal(old_index, new_index, len),
+            DiffOp::Delete {
+                old_index, old_len, ..
             } => {
-                report.stats.equal_lines += len;
-                for offset in 0..len {
-                    report.rows.push(DiffRow {
-                        kind: "equal",
-                        old_no: Some(old_index + offset + 1),
-                        old: Some(old_lines[old_index + offset].clone()),
-                        old_spans: None,
-                        new_no: Some(new_index + offset + 1),
-                        new: Some(new_lines[new_index + offset].clone()),
-                        new_spans: None,
-                    });
-                }
-                report.ops.push(ReportOp {
-                    kind: "equal",
-                    old_start: old_index + 1,
-                    old_len: len,
-                    new_start: new_index + 1,
-                    new_len: len,
-                    row_start,
-                    row_len: report.rows.len() - row_start,
-                });
-            }
-            DiffOp::Delete { old_index, old_len, .. } => {
-                report.stats.changed_blocks += 1;
-                report.stats.deletions += old_len;
-                for offset in 0..old_len {
-                    report.rows.push(DiffRow {
-                        kind: "delete",
-                        old_no: Some(old_index + offset + 1),
-                        old: Some(old_lines[old_index + offset].clone()),
-                        old_spans: Some(vec![InlineSpan {
-                            kind: "delete",
-                            text: display_text(&old_lines[old_index + offset], show_whitespace),
-                        }]),
-                        new_no: None,
-                        new: None,
-                        new_spans: None,
-                    });
-                }
-                report.ops.push(ReportOp {
-                    kind: "delete",
-                    old_start: old_index + 1,
-                    old_len,
-                    new_start: 0,
-                    new_len: 0,
-                    row_start,
-                    row_len: report.rows.len() - row_start,
-                });
+                builder.push_delete(old_index, old_len);
             }
             DiffOp::Insert {
                 new_index, new_len, ..
             } => {
-                report.stats.changed_blocks += 1;
-                report.stats.additions += new_len;
-                for offset in 0..new_len {
-                    report.rows.push(DiffRow {
-                        kind: "insert",
-                        old_no: None,
-                        old: None,
-                        old_spans: None,
-                        new_no: Some(new_index + offset + 1),
-                        new: Some(new_lines[new_index + offset].clone()),
-                        new_spans: Some(vec![InlineSpan {
-                            kind: "insert",
-                            text: display_text(&new_lines[new_index + offset], show_whitespace),
-                        }]),
-                    });
-                }
-                report.ops.push(ReportOp {
-                    kind: "insert",
-                    old_start: 0,
-                    old_len: 0,
-                    new_start: new_index + 1,
-                    new_len,
-                    row_start,
-                    row_len: report.rows.len() - row_start,
-                });
+                builder.push_insert(new_index, new_len);
             }
             DiffOp::Replace {
                 old_index,
                 old_len,
                 new_index,
                 new_len,
-            } => {
-                report.stats.changed_blocks += 1;
-                report.stats.deletions += old_len;
-                report.stats.additions += new_len;
-                let len = old_len.max(new_len);
-                for offset in 0..len {
-                    let old_line = (offset < old_len).then(|| old_lines[old_index + offset].as_str());
-                    let new_line = (offset < new_len).then(|| new_lines[new_index + offset].as_str());
-                    let (old_spans, new_spans) = match (old_line, new_line) {
-                        (Some(old_line), Some(new_line)) => {
-                            inline_spans(
-                                old_line,
-                                new_line,
-                                show_whitespace,
-                                algorithm,
-                                inline,
-                                unicode,
-                                semantic_cleanup,
-                            )
-                        }
-                        (Some(old_line), None) => (
-                            Some(vec![InlineSpan {
-                                kind: "delete",
-                                text: display_text(old_line, show_whitespace),
-                            }]),
-                            None,
-                        ),
-                        (None, Some(new_line)) => (
-                            None,
-                            Some(vec![InlineSpan {
-                                kind: "insert",
-                                text: display_text(new_line, show_whitespace),
-                            }]),
-                        ),
-                        (None, None) => (None, None),
-                    };
-
-                    report.rows.push(DiffRow {
-                        kind: "replace",
-                        old_no: (offset < old_len).then_some(old_index + offset + 1),
-                        old: (offset < old_len).then(|| old_lines[old_index + offset].clone()),
-                        old_spans,
-                        new_no: (offset < new_len).then_some(new_index + offset + 1),
-                        new: (offset < new_len).then(|| new_lines[new_index + offset].clone()),
-                        new_spans,
-                    });
-                }
-                report.ops.push(ReportOp {
-                    kind: "replace",
-                    old_start: old_index + 1,
-                    old_len,
-                    new_start: new_index + 1,
-                    new_len,
-                    row_start,
-                    row_len: report.rows.len() - row_start,
-                });
-            }
+            } => builder.push_replace(old_index, old_len, new_index, new_len)?,
         }
     }
 
-    report.stats.similarity = similarity_score(
-        report.stats.equal_lines,
-        report.stats.old_lines,
-        report.stats.new_lines,
-    );
+    serde_json::to_vec(&builder.finish()).map_err(|err| err.to_string())
+}
 
-    serde_json::to_vec(&report).map_err(|err| err.to_string())
+fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: &Options) -> DiffMeta {
+    let mut messages = Vec::new();
+    messages.push(format!("algorithm: {}", algorithm_name(options.algorithm)));
+    messages.push(format!("inline: {}", options.inline.name()));
+
+    if options.unicode {
+        messages.push("unicode inline tokenization enabled".to_owned());
+    } else {
+        messages.push("unicode inline tokenization disabled".to_owned());
+    }
+
+    if options.ignore_whitespace {
+        messages.push("line matching ignores whitespace".to_owned());
+    }
+
+    if options.show_whitespace {
+        messages.push("changed whitespace is rendered visibly".to_owned());
+    }
+
+    if options.semantic_cleanup {
+        messages.push("semantic cleanup enabled for inline spans".to_owned());
+    }
+
+    if old.text != new.text && old.lines == new.lines {
+        messages.push("files differ only by trailing newline".to_owned());
+    }
+
+    DiffMeta {
+        algorithm: algorithm_name(options.algorithm),
+        inline: options.inline.name(),
+        ignore_whitespace: options.ignore_whitespace,
+        show_whitespace: options.show_whitespace,
+        unicode: options.unicode,
+        semantic_cleanup: options.semantic_cleanup,
+        old_trailing_newline: old.trailing_newline,
+        new_trailing_newline: new.trailing_newline,
+        messages,
+    }
+}
+
+fn line_ops(
+    algorithm: Algorithm,
+    ignore_whitespace: bool,
+    old_lines: &[String],
+    new_lines: &[String],
+) -> Vec<DiffOp> {
+    if ignore_whitespace {
+        let old_keys = old_lines
+            .iter()
+            .map(|line| normalize_key(line))
+            .collect::<Vec<_>>();
+        let new_keys = new_lines
+            .iter()
+            .map(|line| normalize_key(line))
+            .collect::<Vec<_>>();
+        capture_diff_slices(algorithm, &old_keys, &new_keys)
+    } else {
+        capture_diff_slices(algorithm, old_lines, new_lines)
+    }
 }
 
 fn similarity_score(equal_lines: usize, old_lines: usize, new_lines: usize) -> f64 {
@@ -344,6 +434,47 @@ fn similarity_score(equal_lines: usize, old_lines: usize, new_lines: usize) -> f
     }
 }
 
+fn replace_spans(
+    old_line: Option<&str>,
+    new_line: Option<&str>,
+    options: &Options,
+) -> Result<(Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>), String> {
+    match (old_line, new_line) {
+        (Some(old_line), Some(new_line)) => inline_spans(
+            old_line,
+            new_line,
+            options.show_whitespace,
+            options.algorithm,
+            options.inline,
+            options.unicode,
+            options.semantic_cleanup,
+        ),
+        (Some(old_line), None) => Ok((
+            Some(vec![deleted_span(old_line, options.show_whitespace)]),
+            None,
+        )),
+        (None, Some(new_line)) => Ok((
+            None,
+            Some(vec![inserted_span(new_line, options.show_whitespace)]),
+        )),
+        (None, None) => Ok((None, None)),
+    }
+}
+
+fn deleted_span(text: &str, show_whitespace: bool) -> InlineSpan {
+    InlineSpan {
+        kind: "delete",
+        text: display_text(text, show_whitespace),
+    }
+}
+
+fn inserted_span(text: &str, show_whitespace: bool) -> InlineSpan {
+    InlineSpan {
+        kind: "insert",
+        text: display_text(text, show_whitespace),
+    }
+}
+
 fn inline_spans(
     old_line: &str,
     new_line: &str,
@@ -352,15 +483,15 @@ fn inline_spans(
     inline: InlineMode,
     unicode: bool,
     semantic_cleanup: bool,
-) -> (Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>) {
+) -> Result<(Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>), String> {
     if inline == InlineMode::None {
-        return (None, None);
+        return Ok((None, None));
     }
 
     let old_tokens = inline_tokens(old_line, inline, unicode);
     let new_tokens = inline_tokens(new_line, inline, unicode);
     let ops = if semantic_cleanup {
-        capture_compact_diff_slices(algorithm, &old_tokens, &new_tokens)
+        capture_compact_diff_slices(algorithm, &old_tokens, &new_tokens)?
     } else {
         capture_diff_slices(algorithm, &old_tokens, &new_tokens)
     };
@@ -387,7 +518,9 @@ fn inline_spans(
                     false,
                 );
             }
-            DiffOp::Delete { old_index, old_len, .. } => {
+            DiffOp::Delete {
+                old_index, old_len, ..
+            } => {
                 push_span(
                     &mut old_spans,
                     "delete",
@@ -427,18 +560,23 @@ fn inline_spans(
         }
     }
 
-    (Some(old_spans), Some(new_spans))
+    Ok((Some(old_spans), Some(new_spans)))
 }
 
-fn capture_compact_diff_slices<T>(algorithm: Algorithm, old: &[T], new: &[T]) -> Vec<DiffOp>
+fn capture_compact_diff_slices<T>(
+    algorithm: Algorithm,
+    old: &[T],
+    new: &[T],
+) -> Result<Vec<DiffOp>, String>
 where
     T: Eq + std::hash::Hash,
 {
     let capture = Capture::new();
     let replace = Replace::new(capture);
     let mut compact = Compact::new(replace, old, new);
-    diff_slices(algorithm, &mut compact, old, new).unwrap();
-    compact.into_inner().into_inner().into_ops()
+    diff_slices(algorithm, &mut compact, old, new)
+        .map_err(|_| "inline semantic cleanup failed".to_owned())?;
+    Ok(compact.into_inner().into_inner().into_ops())
 }
 
 fn inline_tokens(line: &str, inline: InlineMode, unicode: bool) -> Vec<String> {
@@ -583,12 +721,8 @@ fn split_lines(text: &str) -> Vec<String> {
     lines
 }
 
-fn normalize_key(line: &str, ignore_whitespace: bool) -> String {
-    if ignore_whitespace {
-        line.split_whitespace().collect::<Vec<_>>().join(" ")
-    } else {
-        line.to_owned()
-    }
+fn normalize_key(line: &str) -> String {
+    line.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -747,12 +881,8 @@ mod tests {
 
     #[test]
     fn can_disable_inline_spans_for_replacements() {
-        let output = diff_impl(
-            b"hello world\n",
-            b"hello typst\n",
-            br#"{"inline":"none"}"#,
-        )
-        .unwrap();
+        let output =
+            diff_impl(b"hello world\n", b"hello typst\n", br#"{"inline":"none"}"#).unwrap();
         let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
 
         assert_eq!(value["rows"][0]["kind"], "replace");
@@ -801,6 +931,19 @@ mod tests {
     }
 
     #[test]
+    fn reports_trailing_newline_metadata() {
+        let output = diff_impl(b"a\n", b"a", br#"{}"#).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let messages = value["meta"]["messages"].as_array().unwrap();
+
+        assert_eq!(value["meta"]["old_trailing_newline"], true);
+        assert_eq!(value["meta"]["new_trailing_newline"], false);
+        assert!(messages
+            .iter()
+            .any(|message| message.as_str() == Some("files differ only by trailing newline")));
+    }
+
+    #[test]
     fn accepts_all_supported_algorithms() {
         for algorithm in ["myers", "patience", "lcs", "hunt", "histogram"] {
             let options = format!(r#"{{"algorithm":"{algorithm}"}}"#);
@@ -824,5 +967,19 @@ mod tests {
         let err = diff_impl(b"a\n", b"b\n", br#"{"inline":"letters"}"#).unwrap_err();
 
         assert!(err.contains("inline must be one of"));
+    }
+
+    #[test]
+    fn rejects_malformed_options_json() {
+        let err = diff_impl(b"a\n", b"b\n", br#"{"inline":"chars""#).unwrap_err();
+
+        assert!(err.contains("invalid options JSON"));
+    }
+
+    #[test]
+    fn rejects_wrong_option_types() {
+        let err = diff_impl(b"a\n", b"b\n", br#"{"unicode":"false"}"#).unwrap_err();
+
+        assert!(err.contains("invalid options JSON"));
     }
 }

@@ -21,6 +21,24 @@
 )
 
 #let _color(colors, key) = colors.at(key, default: default-colors.at(key))
+#let _mono-font = "DejaVu Sans Mono"
+#let _line-size = 6.5pt
+#let _code-size = 6.8pt
+#let _label-size = 8.5pt
+#let _pill-size = 7pt
+
+#let _mono(body, fill: auto, size: _code-size) = {
+  let args = if fill == auto { (:) } else { (fill: fill) }
+  text(size: size, font: _mono-font, ..args)[#body]
+}
+
+#let _muted(colors, body, size: _code-size) = {
+  text(size: size, fill: _color(colors, "line-no"))[#body]
+}
+
+#let _strong(body, size: _label-size) = {
+  text(size: size, weight: "bold")[#body]
+}
 
 #let _cell(colors, fill, body, align: left) = table.cell(
   fill: fill,
@@ -30,9 +48,9 @@
 
 #let _line-no(colors, value) = {
   if value == none {
-    text(fill: _color(colors, "line-no"), size: 6.5pt)[]
+    _muted(colors, [], size: _line-size)
   } else {
-    text(fill: _color(colors, "line-no"), size: 6.5pt, font: "DejaVu Sans Mono")[#str(value)]
+    _mono(str(value), fill: _color(colors, "line-no"), size: _line-size)
   }
 }
 
@@ -57,11 +75,7 @@
 }
 
 #let _code-span(colors, span) = {
-  let body = text(
-    size: 6.8pt,
-    font: "DejaVu Sans Mono",
-    fill: _span-text-fill(colors, span.kind),
-  )[#span.text]
+  let body = _mono(span.text, fill: _span-text-fill(colors, span.kind))
 
   if span.kind == "equal" {
     body
@@ -81,9 +95,9 @@
       _code-span(colors, span)
     }
   } else if value == none {
-    text(size: 6.8pt, font: "DejaVu Sans Mono")[]
+    _mono([])
   } else {
-    text(size: 6.8pt, font: "DejaVu Sans Mono", fill: _color(colors, "text"))[#value]
+    _mono(value, fill: _color(colors, "text"))
   }
 }
 
@@ -103,7 +117,7 @@
   fill: fill,
   inset: (x: 5pt, y: 2pt),
   radius: 2pt,
-)[#text(size: 7pt, fill: fg, weight: "bold")[#body]]
+)[#text(size: _pill-size, fill: fg, weight: "bold")[#body]]
 
 #let _flush_equal_run(run, threshold, context-lines) = {
   let keep = calc.max(0, context-lines)
@@ -146,25 +160,55 @@
   new: report.stats.new_lines,
 )
 
-#let diffst-stat-raw(report, stat) = {
+#let _stat-info(report, stat) = {
   if stat == "similarity" {
-    calc.round(report.stats.similarity * 100)
+    (
+      value: calc.round(report.stats.similarity * 100),
+      summary: (
+        fill: "collapsed",
+        fg: "text",
+        label: value => str(value) + "% similar",
+      ),
+    )
   } else if stat == "additions" {
-    report.stats.additions
+    (
+      value: report.stats.additions,
+      summary: (
+        fill: "insert",
+        fg: "insert-text",
+        label: value => "+" + str(value),
+      ),
+    )
   } else if stat == "deletions" {
-    report.stats.deletions
+    (
+      value: report.stats.deletions,
+      summary: (
+        fill: "delete",
+        fg: "delete-text",
+        label: value => "-" + str(value),
+      ),
+    )
   } else if stat == "changed-blocks" {
-    report.stats.changed_blocks
+    (
+      value: report.stats.changed_blocks,
+      summary: (
+        fill: "replace",
+        fg: "replace-text",
+        label: value => str(value) + " changed blocks",
+      ),
+    )
   } else if stat == "equal-lines" {
-    report.stats.equal_lines
+    (value: report.stats.equal_lines, summary: none)
   } else if stat == "old-lines" {
-    report.stats.old_lines
+    (value: report.stats.old_lines, summary: none)
   } else if stat == "new-lines" {
-    report.stats.new_lines
+    (value: report.stats.new_lines, summary: none)
   } else {
     panic("unknown raw stat: " + stat)
   }
 }
+
+#let diffst-stat-raw(report, stat) = _stat-info(report, stat).value
 
 #let diffst-stats-raw(
   report,
@@ -177,20 +221,35 @@
 }
 
 #let diffst-row-counts-raw(rows) = {
+  let equal = 0
+  let insert = 0
+  let delete = 0
+  let replace = 0
+  let collapsed = 0
   let hidden = 0
+
   for row in rows {
-    if row.kind == "collapsed" {
+    if row.kind == "equal" {
+      equal += 1
+    } else if row.kind == "insert" {
+      insert += 1
+    } else if row.kind == "delete" {
+      delete += 1
+    } else if row.kind == "replace" {
+      replace += 1
+    } else if row.kind == "collapsed" {
+      collapsed += 1
       hidden += row.hidden
     }
   }
 
   (
     rows: rows.len(),
-    equal: rows.filter(row => row.kind == "equal").len(),
-    insert: rows.filter(row => row.kind == "insert").len(),
-    delete: rows.filter(row => row.kind == "delete").len(),
-    replace: rows.filter(row => row.kind == "replace").len(),
-    collapsed: rows.filter(row => row.kind == "collapsed").len(),
+    equal: equal,
+    insert: insert,
+    delete: delete,
+    replace: replace,
+    collapsed: collapsed,
     hidden: hidden,
   )
 }
@@ -211,19 +270,19 @@
 #let diffst-summary-label(report, colors: (:)) = {
   let colors = default-colors + colors
   [
-    #text(size: 8.5pt, weight: "bold")[#report.old]
+    #_strong(report.old)
     #h(3pt)
     #text(fill: _color(colors, "line-no"))[#math.mapsto]
     #h(3pt)
-    #text(size: 8.5pt, weight: "bold")[#report.new]
+    #_strong(report.new)
   ]
 }
 
 #let diffst-summary-lines(report, colors: (:)) = {
   let colors = default-colors + colors
-  text(size: 6.8pt, fill: _color(colors, "line-no"))[
+  _muted(colors, [
     #report.stats.old_lines old lines, #report.stats.new_lines new lines
-  ]
+  ])
 }
 
 #let diffst-summary-title(report, colors: (:)) = [
@@ -234,33 +293,16 @@
 
 #let diffst-summary-stat(report, stat, colors: (:)) = {
   let colors = default-colors + colors
-  if stat == "similarity" {
-    diffst-pill(
-      _color(colors, "collapsed"),
-      _color(colors, "text"),
-      str(calc.round(report.stats.similarity * 100)) + "% similar",
-    )
-  } else if stat == "additions" {
-    diffst-pill(
-      _color(colors, "insert"),
-      _color(colors, "insert-text"),
-      "+" + str(report.stats.additions),
-    )
-  } else if stat == "deletions" {
-    diffst-pill(
-      _color(colors, "delete"),
-      _color(colors, "delete-text"),
-      "-" + str(report.stats.deletions),
-    )
-  } else if stat == "changed-blocks" {
-    diffst-pill(
-      _color(colors, "replace"),
-      _color(colors, "replace-text"),
-      str(report.stats.changed_blocks) + " changed blocks",
-    )
-  } else {
+  let info = _stat-info(report, stat)
+  if info.summary == none {
     panic("unknown summary stat: " + stat)
   }
+
+  diffst-pill(
+    _color(colors, info.summary.fill),
+    _color(colors, info.summary.fg),
+    (info.summary.label)(info.value),
+  )
 }
 
 #let diffst-summary-stats(
@@ -303,16 +345,16 @@
   inset: 0pt,
   table.header(
     repeat: true,
-    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Old], align: center),
-    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Content]),
-    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[New], align: center),
-    _cell(colors, _color(colors, "header"), text(size: 6.5pt, weight: "bold")[Content]),
+    _cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center),
+    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
+    _cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center),
+    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
   ),
   ..rows.map(row => {
     if row.kind == "collapsed" {
       (
         table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
-          #text(size: 6.5pt, fill: _color(colors, "line-no"))[#row.hidden unchanged lines hidden]
+          #_muted(colors, [#row.hidden unchanged lines hidden], size: _line-size)
         ],
       )
     } else {
@@ -376,6 +418,9 @@
   if context-lines < 0 {
     panic("context-lines must be greater than or equal to 0")
   }
+  if collapse-threshold < 0 {
+    panic("collapse-threshold must be greater than or equal to 0")
+  }
 
   if display == "full" {
     report.rows
@@ -386,14 +431,29 @@
   }
 }
 
-#let _previous_op(ops, op) = {
-  let previous = none
-  for candidate in ops {
-    if candidate.row_start < op.row_start {
-      previous = candidate
-    }
+#let _empty_hunk(row-start) = (
+  ops: (),
+  row_start: row-start,
+  row_end: row-start,
+  context_before: 0,
+  context_after: 0,
+)
+
+#let _start_hunk(previous, op, context-lines) = {
+  let hunk = _empty_hunk(op.row_start)
+
+  if previous != none and previous.kind == "equal" {
+    hunk.ops.push(previous)
+    hunk.context_before = calc.min(previous.row_len, context-lines)
+    hunk.row_start = previous.row_start + previous.row_len - hunk.context_before
   }
-  previous
+
+  hunk
+}
+
+#let _equal_gap_exceeds_context(op, context-lines) = {
+  let hidden-prefix = op.row_len - calc.min(op.row_len, context-lines)
+  hidden-prefix > context-lines
 }
 
 #let _finish_hunk(report, hunk) = {
@@ -426,16 +486,16 @@
 
   let hunks = ()
   let current = none
+  let previous = none
 
   for op in report.ops {
     if op.kind == "equal" {
       if current != none {
-        let prefix = op.row_len - calc.min(op.row_len, context-lines)
         current.ops.push(op)
         current.row_end = op.row_start + op.row_len
         current.context_after = calc.min(op.row_len, context-lines)
 
-        if prefix > context-lines {
+        if _equal_gap_exceeds_context(op, context-lines) {
           current.row_end = op.row_start + context-lines
           hunks.push(_finish_hunk(report, current))
           current = none
@@ -443,25 +503,14 @@
       }
     } else {
       if current == none {
-        current = (
-          ops: (),
-          row_start: op.row_start,
-          row_end: op.row_start,
-          context_before: 0,
-          context_after: 0,
-        )
-
-        let previous = _previous_op(report.ops, op)
-        if previous != none and previous.kind == "equal" {
-          current.ops.push(previous)
-          current.context_before = calc.min(previous.row_len, context-lines)
-          current.row_start = previous.row_start + previous.row_len - current.context_before
-        }
+        current = _start_hunk(previous, op, context-lines)
       }
 
       current.ops.push(op)
       current.row_end = op.row_start + op.row_len
     }
+
+    previous = op
   }
 
   if current != none {
@@ -500,12 +549,12 @@
   }
 }
 
-#let _debug-row(label, value) = (
-  table.cell(fill: rgb("#f7f8fb"), inset: (x: 4pt, y: 2.5pt))[
-    #text(size: 6.7pt, weight: "bold")[#label]
+#let _debug-row(colors, label, value) = (
+  table.cell(fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 2.5pt))[
+    #_strong(label, size: _code-size)
   ],
   table.cell(inset: (x: 4pt, y: 2.5pt))[
-    #text(size: 6.7pt)[#value]
+    #text(size: _code-size)[#value]
   ],
 )
 
@@ -527,11 +576,11 @@
       gutter: 6pt,
       align: horizon,
       [
-        #text(size: 8.5pt, weight: "bold")[diffst debug]
+        #_strong([diffst debug])
         #linebreak()
-        #text(size: 6.8pt, fill: _color(colors, "line-no"))[
+        #_muted(colors, [
           #report.old #math.mapsto #report.new
-        ]
+        ])
       ],
       diffst-pill(
         _color(colors, "collapsed"),
@@ -544,25 +593,27 @@
       columns: (auto, 1fr),
       stroke: _color(colors, "border"),
       inset: (x: 4pt, y: 2.5pt),
-      .._debug-row("algorithm", raw.meta.algorithm),
-      .._debug-row("inline", raw.meta.inline),
-      .._debug-row("unicode", _debug-value(raw.meta.unicode)),
-      .._debug-row("ignore whitespace", _debug-value(raw.meta.ignore_whitespace)),
-      .._debug-row("show whitespace", _debug-value(raw.meta.show_whitespace)),
-      .._debug-row("semantic cleanup", _debug-value(raw.meta.semantic_cleanup)),
-      .._debug-row("old/new lines", str(raw.stats.old_lines) + " / " + str(raw.stats.new_lines)),
-      .._debug-row("equal lines", str(raw.stats.equal_lines)),
-      .._debug-row("line similarity", str(calc.round(raw.stats.similarity * 100)) + "%"),
-      .._debug-row("visible rows", str(row-counts.rows)),
-      .._debug-row("hidden rows", str(row-counts.hidden)),
-      .._debug-row("hunks", str(raw.hunks)),
+      .._debug-row(colors, "algorithm", raw.meta.algorithm),
+      .._debug-row(colors, "inline", raw.meta.inline),
+      .._debug-row(colors, "unicode", _debug-value(raw.meta.unicode)),
+      .._debug-row(colors, "ignore whitespace", _debug-value(raw.meta.ignore_whitespace)),
+      .._debug-row(colors, "show whitespace", _debug-value(raw.meta.show_whitespace)),
+      .._debug-row(colors, "semantic cleanup", _debug-value(raw.meta.semantic_cleanup)),
+      .._debug-row(colors, "old trailing newline", _debug-value(raw.meta.old_trailing_newline)),
+      .._debug-row(colors, "new trailing newline", _debug-value(raw.meta.new_trailing_newline)),
+      .._debug-row(colors, "old/new lines", str(raw.stats.old_lines) + " / " + str(raw.stats.new_lines)),
+      .._debug-row(colors, "equal lines", str(raw.stats.equal_lines)),
+      .._debug-row(colors, "line similarity", str(calc.round(raw.stats.similarity * 100)) + "%"),
+      .._debug-row(colors, "visible rows", str(row-counts.rows)),
+      .._debug-row(colors, "hidden rows", str(row-counts.hidden)),
+      .._debug-row(colors, "hunks", str(raw.hunks)),
     )
     #if messages.len() > 0 [
       #v(5pt)
-      #text(size: 7pt, weight: "bold")[messages]
+      #_strong([messages], size: _pill-size)
       #v(2pt)
       #for message in messages [
-        #text(size: 6.8pt, fill: _color(colors, "line-no"))[- #message]
+        #_muted(colors, [- #message])
         #linebreak()
       ]
     ]

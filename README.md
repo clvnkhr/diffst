@@ -15,16 +15,11 @@ plugin, and renders the structured diff as a side-by-side report.
 
 ```sh
 rustup target add wasm32-unknown-unknown
-cargo build --release --target wasm32-unknown-unknown
-typst compile --root . examples/basic.typ
-typst compile --root . examples/realistic.typ
-typst compile --root . examples/custom-colors.typ
-typst compile --root . examples/show-rules.typ
-typst compile --root . examples/manual-layout.typ
-typst compile --root . examples/algorithms.typ
-typst compile --root . examples/options/debug.typ
-typst compile --root . examples/options/inline-words.typ
+sh scripts/smoke.sh
 ```
+
+The smoke script runs `cargo test`, builds the WASM plugin, and compiles every
+`examples/**/*.typ` file to `${TMPDIR:-/tmp}/diffst-smoke`.
 
 ## Examples
 
@@ -41,6 +36,7 @@ turns on one option:
 - `display-collapsed.typ` and `display-full.typ`
 - `context-lines.typ`
 - `collapse-threshold.typ`
+- `hunks.typ`
 
 `examples/custom-colors.typ` shows color overrides, and
 `examples/show-rules.typ` shows Typst show rules for styling the rendered
@@ -184,9 +180,10 @@ you want to keep the default row filtering but replace the final arrangement.
 
 `report.meta` exposes the resolved debug metadata from the WASM engine:
 `algorithm`, `inline`, `unicode`, `ignore_whitespace`, `show_whitespace`,
-`semantic_cleanup`, and a `messages` array. Use `diffst-debug(report, rows:
-..)` to render those diagnostics in the document, or `diffst-debug-raw(report,
-rows: ..)` to receive the same diagnostics as data for a custom smoke panel.
+`semantic_cleanup`, `old_trailing_newline`, `new_trailing_newline`, and a
+`messages` array. Use `diffst-debug(report, rows: ..)` to render those
+diagnostics in the document, or `diffst-debug-raw(report, rows: ..)` to receive
+the same diagnostics as data for a custom smoke panel.
 
 For layouts that want numbers and labels instead of prebuilt content, diffst
 also exposes raw helpers:
