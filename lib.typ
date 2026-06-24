@@ -26,9 +26,9 @@
   border: black,
   header: white,
   equal: white,
-  delete: luma(94%),
-  insert: luma(96%),
-  replace: luma(92%),
+  delete: luma(98%),
+  insert: luma(99%),
+  replace: luma(97%),
   inline-delete: rgb("#f2b6bf"),
   inline-insert: rgb("#a8d5b3"),
   inline-equal: none,
@@ -38,8 +38,21 @@
   collapsed: white,
 )
 
+#let default-table-style = (
+  columns: (2.4em, 1fr, 2.4em, 1fr),
+  rules: "default",
+  stroke-width: (
+    header: 0.8pt,
+    body: 0.45pt,
+  ),
+)
+
+#let minimal-table-style = default-table-style + (
+  rules: "minimal",
+  stroke-width: 0.6pt,
+)
+
 #let _color(colors, key) = colors.at(key, default: default-colors.at(key))
-#let _mono-font = "DejaVu Sans Mono"
 #let _line-size = 6.5pt
 #let _code-size = 6.8pt
 #let _label-size = 8.5pt
@@ -47,7 +60,7 @@
 
 #let _mono(body, fill: auto, size: _code-size) = {
   let args = if fill == auto { (:) } else { (fill: fill) }
-  text(size: size, font: _mono-font, ..args)[#body]
+  text(size: size, ..args)[#raw(str(body), block: false)]
 }
 
 #let _muted(colors, body, size: _code-size) = {
@@ -70,7 +83,7 @@
 
 #let _line-no(colors, value) = {
   if value == none {
-    _muted(colors, [], size: _line-size)
+    _muted(colors, "", size: _line-size)
   } else {
     _mono(str(value), fill: _color(colors, "line-no"), size: _line-size)
   }
@@ -115,7 +128,7 @@
         _code-span(colors, span)
       }
     } else if value == none {
-      _mono([])
+      _mono("")
     } else {
       _mono(value, fill: _color(colors, "text"))
     }
@@ -380,21 +393,35 @@
   }
 }
 
-#let _table-stroke(colors, table-style) = {
-  if table-style == "default" {
-    (x, y) => (
-      paint: _color(colors, "border"),
-      thickness: if y == 0 { 0.8pt } else { 0.45pt },
-    )
-  } else if table-style == "minimal" {
-    none
+#let _resolve-table-style(table-style) = {
+  if type(table-style) == str {
+    if table-style == "default" {
+      default-table-style
+    } else if table-style == "minimal" {
+      minimal-table-style
+    } else {
+      panic("table-style must be \"default\", \"minimal\", or a table style dictionary")
+    }
   } else {
-    panic("table-style must be \"default\" or \"minimal\"")
+    default-table-style + table-style
   }
 }
 
-#let _minimal-cell-stroke(colors, column, header: false) = {
-  let rule = 0.6pt + _color(colors, "border")
+#let _table-stroke(colors, table-style) = {
+  if table-style.rules == "default" {
+    (x, y) => (
+      paint: _color(colors, "border"),
+      thickness: if y == 0 { table-style.stroke-width.header } else { table-style.stroke-width.body },
+    )
+  } else if table-style.rules == "minimal" {
+    none
+  } else {
+    panic("table-style.rules must be \"default\" or \"minimal\"")
+  }
+}
+
+#let _minimal-cell-stroke(colors, table-style, column, header: false) = {
+  let rule = table-style.stroke-width + _color(colors, "border")
   if header and column == 1 {
     (right: rule, bottom: rule)
   } else if header {
@@ -407,15 +434,17 @@
 }
 
 #let _cell-stroke(colors, table-style, column, header: false) = {
-  if table-style == "minimal" {
-    _minimal-cell-stroke(colors, column, header: header)
+  if table-style.rules == "minimal" {
+    _minimal-cell-stroke(colors, table-style, column, header: header)
   } else {
     auto
   }
 }
 
-#let _diff-table(colors, rows, report: none, table-style: "default") = table(
-  columns: (2.4em, 1fr, 2.4em, 1fr),
+#let _diff-table(colors, rows, report: none, table-style: default-table-style) = {
+  let table-style = _resolve-table-style(table-style)
+  table(
+  columns: table-style.columns,
   stroke: _table-stroke(colors, table-style),
   inset: 0pt,
   table.header(
@@ -451,7 +480,8 @@
     }
   }).flatten(),
   .._trailing-newline-rows(colors, report),
-)
+  )
+}
 
 #let diffst-report(
   old,
@@ -713,7 +743,7 @@
   }
 }
 
-#let diffst-table(report, rows: auto, colors: (:), table-style: "default") = {
+#let diffst-table(report, rows: auto, colors: (:), table-style: default-table-style) = {
   let colors = default-colors + colors
   let rows = if rows == auto { report.rows } else { rows }
   _diff-table(colors, rows, report: report, table-style: table-style)
@@ -725,7 +755,7 @@
   display: "collapsed",
   collapse-threshold: 14,
   context-lines: 3,
-  table-style: "default",
+  table-style: default-table-style,
   body: auto,
 ) = {
   let colors = default-colors + colors
@@ -786,12 +816,12 @@
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),
-    e.field("table-style", str, doc: "Table rule style: \"default\" or \"minimal\".", default: "default"),
+    e.field("table-style", e.types.any, doc: "Table style dictionary, or \"default\"/\"minimal\".", default: default-table-style),
     e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),
   ),
 )
 
 #let minimal-table(body) = {
-  show: e.set_(diffst, colors: minimal-colors, table-style: "minimal")
+  show: e.set_(diffst, colors: minimal-colors, table-style: minimal-table-style)
   body
 }

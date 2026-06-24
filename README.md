@@ -58,7 +58,7 @@ blocks, tables, cells, and fonts around a report.
   show-whitespace: true,
   display: "collapsed", // or "full"
   context-lines: 3,
-  table-style: "default", // or "minimal"
+  table-style: "default", // or "minimal", default-table-style, minimal-table-style, ...
 )
 ```
 
@@ -86,9 +86,25 @@ highlight boundaries toward more readable chunks.
 collapsed region. `collapse-threshold` controls how long an unchanged run must
 be before it is collapsed.
 
-`table-style` controls the table rules. The default style draws a light grid;
-`"minimal"` keeps only the center separator and the rule under the header. For a
-document-wide minimal style, use `#show: minimal-table`.
+`table-style` controls the table columns and rules. The default style draws a
+light grid; `"minimal"` keeps only the center separator and the rule under the
+header. For a document-wide minimal style, use `#show: minimal-table`.
+
+`default-table-style` and `minimal-table-style` are exported dictionaries, so
+table structure and stroke widths can be changed without rewriting the renderer.
+
+```typst
+#import "lib.typ": diffst, default-table-style
+
+#diffst(
+  "old.typ",
+  "new.typ",
+  table-style: default-table-style + (
+    columns: (2em, 1fr, 2em, 1fr),
+    stroke-width: (header: 0.7pt, body: 0.35pt),
+  ),
+)
+```
 
 `deadline-ms` is intentionally not exposed. `similar` can use real deadlines
 when a clock is available, but Typst plugins do not currently provide the host
@@ -136,11 +152,11 @@ rule under the header, while keeping colored inline highlights for changed
 words or characters.
 
 ```typst
-#import "lib.typ": diffst, minimal-table
+#import "lib.typ": diffst, minimal-table, minimal-table-style
 
 #show: minimal-table
 
-#diffst("old.typ", "new.typ")
+#diffst("old.typ", "new.typ", table-style: minimal-table-style)
 ```
 
 ## Manual Layouts
@@ -162,6 +178,7 @@ arranged manually.
   diffst-summary-stat,
   diffst-summary-title,
   diffst-table,
+  minimal-table-style,
   minimal-colors,
 )
 
@@ -198,7 +215,7 @@ arranged manually.
 #diffst-table(report, rows: rows)
 
 #v(8pt)
-#diffst-table(report, rows: rows, colors: minimal-colors, table-style: "minimal")
+#diffst-table(report, rows: rows, colors: minimal-colors, table-style: minimal-table-style)
 ```
 
 `report.ops` exposes the raw line-level diff operations returned by the WASM
@@ -270,13 +287,15 @@ replace each layer.
   from `diffst-summary-title(..)` and `diffst-summary-stats(..)`. The file
   labels and line counts are text, and the stats are small filled `box` pills
   created by `diffst-pill(..)`.
-- `diffst-table(..)` returns a `table` with four columns: old line number, old
-  content, new line number, and new content. Header, line number, content, and
-  collapsed rows are `table.cell`s.
+- `diffst-table(..)` returns a `table`. Its columns and rule widths come from
+  `table-style`, which may be `default-table-style`, `minimal-table-style`, a
+  dictionary derived from one of them, or the compatibility strings `"default"`
+  and `"minimal"`.
 - `minimal-table` is a show rule that sets `colors: minimal-colors` and
-  `table-style: "minimal"` for all `diffst` elements in its scope.
-- Inline highlights inside code cells are `highlight` elements around monospace
-  `text`. Unchanged text is plain monospace `text`.
+  `table-style: minimal-table-style` for all `diffst` elements in its scope.
+- Code cells use Typst inline `raw` text, so the document's raw-text styling
+  controls the monospace font. Inline highlights are `highlight` elements around
+  that raw text.
 - `diffst-rows(..)` returns row dictionaries for `diffst-table(..)`; it does
   not emit content.
 - `diffst-hunks(..)` returns hunk dictionaries with `ops` and `rows`; it does
