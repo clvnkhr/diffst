@@ -1,6 +1,7 @@
 #import "../lib.typ": (
   default-colors,
   diffst-report,
+  diffst-hunks,
   diffst-rows,
   diffst-summary,
   diffst-table,
@@ -22,6 +23,8 @@
   show-whitespace: true,
 )
 
+#let hunks = diffst-hunks(report, context-lines: 2)
+
 = manual diffst layout
 
 #grid(
@@ -32,7 +35,10 @@
   ],
   [
     #align(right)[
-      #text(size: 7pt, fill: colors.line-no)[Custom header/sidebar area]
+      #text(size: 7pt, fill: colors.line-no)[
+        #hunks.len() hunks\
+        first hunk rows #hunks.first().row_start - #hunks.first().row_end
+      ]
     ]
   ],
 )
@@ -44,4 +50,3 @@
   rows: diffst-rows(report, display: "collapsed", collapse-threshold: 4),
   colors: colors,
 )
-

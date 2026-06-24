@@ -31,6 +31,7 @@ typst compile --root . examples/algorithms.typ
   "new.typ",
   algorithm: "patience",
   inline: "words",
+  semantic-cleanup: true,
   ignore-whitespace: true,
   show-whitespace: true,
   display: "collapsed", // or "full"
@@ -47,11 +48,18 @@ compare the underlying algorithms.
 character-level edits, `"words"` highlights word/punctuation chunks, and
 `"none"` keeps only the changed-row background.
 
+`semantic-cleanup` runs an extra cleanup pass on inline highlights to shift
+highlight boundaries toward more readable chunks.
+
 `show-whitespace` makes changed spaces and tabs visible inside inline highlights.
 
 `context-lines` controls how many unchanged lines are kept before and after a
 collapsed region. `collapse-threshold` controls how long an unchanged run must
 be before it is collapsed.
+
+The summary includes a line similarity score. In manual layouts, use
+`report.stats.similarity` for a `0.0` to `1.0` ratio and
+`report.stats.equal_lines` for the matched-line count.
 
 ## Colors
 
@@ -83,12 +91,14 @@ arranged manually.
 ```typst
 #import "lib.typ": (
   diffst-report,
+  diffst-hunks,
   diffst-rows,
   diffst-summary,
   diffst-table,
 )
 
 #let report = diffst-report("old.typ", "new.typ", show-whitespace: true)
+#let hunks = diffst-hunks(report, context-lines: 2)
 #let rows = diffst-rows(
   report,
   display: "collapsed",
@@ -106,5 +116,35 @@ arranged manually.
 #diffst-table(report, rows: rows)
 ```
 
+`report.ops` exposes the raw line-level diff operations returned by the WASM
+engine. Each op includes its kind, old/new line ranges, and corresponding row
+range. `diffst-hunks(report, context-lines: 2)` groups those ops into hunk
+dictionaries with `ops`, `rows`, `old_start`, `old_len`, `new_start`, and
+`new_len` fields for custom layouts.
+
 `diffst-layout(report, body: (report, rows, colors) => ..)` is available when
 you want to keep the default row filtering but replace the final arrangement.
+
+## Rendering Structure
+
+The default renderer is ordinary Typst content, so custom layouts can wrap or
+replace each layer.
+
+- `#diffst(..)` is an Elembic element. Its display function calls
+  `diffst-report(..)` and `diffst-layout(..)`.
+- `diffst-layout(..)` returns a `block(width: 100%)` containing the summary,
+  vertical spacing, and the diff table. If `body` is supplied, it calls
+  `body(report, rows, colors)` instead.
+- `diffst-summary(..)` returns a `block` containing a `grid`. The file labels
+  and line counts are text, and the stats are small filled `box` pills.
+- `diffst-table(..)` returns a `table` with four columns: old line number, old
+  content, new line number, and new content. Header, line number, content, and
+  collapsed rows are `table.cell`s.
+- Inline highlights inside code cells are `box` elements around monospace
+  `text`. Unchanged text is plain monospace `text`.
+- `diffst-rows(..)` returns row dictionaries for `diffst-table(..)`; it does
+  not emit content.
+- `diffst-hunks(..)` returns hunk dictionaries with `ops` and `rows`; it does
+  not emit content.
+- `diffst-report(..)` returns data from the WASM engine plus `old` and `new`
+  labels; it does not emit content.

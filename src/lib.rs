@@ -1,4 +1,5 @@
 use serde::Serialize;
+use similar::algorithms::{diff_slices, Capture, Compact, Replace};
 use similar::{capture_diff_slices, capture_diff_slices_by_key, Algorithm, DiffOp};
 
 #[cfg(target_arch = "wasm32")]
@@ -7,6 +8,7 @@ wasm_minimal_protocol::initiate_protocol!();
 #[derive(Serialize)]
 struct DiffReport {
     stats: DiffStats,
+    ops: Vec<ReportOp>,
     rows: Vec<DiffRow>,
 }
 
@@ -17,6 +19,8 @@ struct DiffStats {
     additions: usize,
     deletions: usize,
     changed_blocks: usize,
+    equal_lines: usize,
+    similarity: f64,
 }
 
 #[derive(Serialize)]
@@ -34,6 +38,17 @@ struct DiffRow {
 struct InlineSpan {
     kind: &'static str,
     text: String,
+}
+
+#[derive(Serialize)]
+struct ReportOp {
+    kind: &'static str,
+    old_start: usize,
+    old_len: usize,
+    new_start: usize,
+    new_len: usize,
+    row_start: usize,
+    row_len: usize,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -76,6 +91,10 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
         .map(parse_inline_mode)
         .transpose()?
         .unwrap_or(InlineMode::Chars);
+    let semantic_cleanup = options
+        .get("semantic_cleanup")
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false);
 
     let old_lines = split_lines(old);
     let new_lines = split_lines(new);
@@ -93,17 +112,22 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
             additions: 0,
             deletions: 0,
             changed_blocks: 0,
+            equal_lines: 0,
+            similarity: 1.0,
         },
+        ops: Vec::new(),
         rows: Vec::new(),
     };
 
     for op in ops {
+        let row_start = report.rows.len();
         match op {
             DiffOp::Equal {
                 old_index,
                 new_index,
                 len,
             } => {
+                report.stats.equal_lines += len;
                 for offset in 0..len {
                     report.rows.push(DiffRow {
                         kind: "equal",
@@ -115,6 +139,15 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                         new_spans: None,
                     });
                 }
+                report.ops.push(ReportOp {
+                    kind: "equal",
+                    old_start: old_index + 1,
+                    old_len: len,
+                    new_start: new_index + 1,
+                    new_len: len,
+                    row_start,
+                    row_len: report.rows.len() - row_start,
+                });
             }
             DiffOp::Delete { old_index, old_len, .. } => {
                 report.stats.changed_blocks += 1;
@@ -133,6 +166,15 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                         new_spans: None,
                     });
                 }
+                report.ops.push(ReportOp {
+                    kind: "delete",
+                    old_start: old_index + 1,
+                    old_len,
+                    new_start: 0,
+                    new_len: 0,
+                    row_start,
+                    row_len: report.rows.len() - row_start,
+                });
             }
             DiffOp::Insert {
                 new_index, new_len, ..
@@ -153,6 +195,15 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                         }]),
                     });
                 }
+                report.ops.push(ReportOp {
+                    kind: "insert",
+                    old_start: 0,
+                    old_len: 0,
+                    new_start: new_index + 1,
+                    new_len,
+                    row_start,
+                    row_len: report.rows.len() - row_start,
+                });
             }
             DiffOp::Replace {
                 old_index,
@@ -169,7 +220,14 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                     let new_line = (offset < new_len).then(|| new_lines[new_index + offset].as_str());
                     let (old_spans, new_spans) = match (old_line, new_line) {
                         (Some(old_line), Some(new_line)) => {
-                            inline_spans(old_line, new_line, show_whitespace, algorithm, inline)
+                            inline_spans(
+                                old_line,
+                                new_line,
+                                show_whitespace,
+                                algorithm,
+                                inline,
+                                semantic_cleanup,
+                            )
                         }
                         (Some(old_line), None) => (
                             Some(vec![InlineSpan {
@@ -198,11 +256,35 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
                         new_spans,
                     });
                 }
+                report.ops.push(ReportOp {
+                    kind: "replace",
+                    old_start: old_index + 1,
+                    old_len,
+                    new_start: new_index + 1,
+                    new_len,
+                    row_start,
+                    row_len: report.rows.len() - row_start,
+                });
             }
         }
     }
 
+    report.stats.similarity = similarity_score(
+        report.stats.equal_lines,
+        report.stats.old_lines,
+        report.stats.new_lines,
+    );
+
     serde_json::to_vec(&report).map_err(|err| err.to_string())
+}
+
+fn similarity_score(equal_lines: usize, old_lines: usize, new_lines: usize) -> f64 {
+    let total = old_lines + new_lines;
+    if total == 0 {
+        1.0
+    } else {
+        (2.0 * equal_lines as f64) / total as f64
+    }
 }
 
 fn inline_spans(
@@ -211,6 +293,7 @@ fn inline_spans(
     show_whitespace: bool,
     algorithm: Algorithm,
     inline: InlineMode,
+    semantic_cleanup: bool,
 ) -> (Option<Vec<InlineSpan>>, Option<Vec<InlineSpan>>) {
     if inline == InlineMode::None {
         return (None, None);
@@ -218,7 +301,11 @@ fn inline_spans(
 
     let old_tokens = inline_tokens(old_line, inline);
     let new_tokens = inline_tokens(new_line, inline);
-    let ops = capture_diff_slices(algorithm, &old_tokens, &new_tokens);
+    let ops = if semantic_cleanup {
+        capture_compact_diff_slices(algorithm, &old_tokens, &new_tokens)
+    } else {
+        capture_diff_slices(algorithm, &old_tokens, &new_tokens)
+    };
     let mut old_spans = Vec::new();
     let mut new_spans = Vec::new();
 
@@ -283,6 +370,17 @@ fn inline_spans(
     }
 
     (Some(old_spans), Some(new_spans))
+}
+
+fn capture_compact_diff_slices<T>(algorithm: Algorithm, old: &[T], new: &[T]) -> Vec<DiffOp>
+where
+    T: Eq + std::hash::Hash,
+{
+    let capture = Capture::new();
+    let replace = Replace::new(capture);
+    let mut compact = Compact::new(replace, old, new);
+    diff_slices(algorithm, &mut compact, old, new).unwrap();
+    compact.into_inner().into_inner().into_ops()
 }
 
 fn inline_tokens(line: &str, inline: InlineMode) -> Vec<String> {
@@ -425,7 +523,31 @@ mod tests {
 
         assert_eq!(value["stats"]["deletions"], 1);
         assert_eq!(value["stats"]["additions"], 2);
+        assert_eq!(value["stats"]["equal_lines"], 2);
+        assert_eq!(value["stats"]["similarity"], 4.0 / 7.0);
         assert_eq!(value["rows"].as_array().unwrap().len(), 4);
+    }
+
+    #[test]
+    fn reports_full_similarity_for_empty_files() {
+        let output = diff_impl(b"", b"", br#"{}"#).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+        assert_eq!(value["stats"]["similarity"], 1.0);
+    }
+
+    #[test]
+    fn reports_line_ops_with_row_ranges() {
+        let output = diff_impl(b"a\nb\nc\n", b"a\nbee\nc\nd\n", br#"{}"#).unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let ops = value["ops"].as_array().unwrap();
+
+        assert_eq!(ops[0]["kind"], "equal");
+        assert_eq!(ops[1]["kind"], "replace");
+        assert_eq!(ops[2]["kind"], "equal");
+        assert_eq!(ops[3]["kind"], "insert");
+        assert_eq!(ops[1]["row_start"], 1);
+        assert_eq!(ops[1]["row_len"], 1);
     }
 
     #[test]
@@ -513,6 +635,21 @@ mod tests {
         assert_eq!(value["rows"][0]["kind"], "replace");
         assert!(value["rows"][0]["old_spans"].is_null());
         assert!(value["rows"][0]["new_spans"].is_null());
+    }
+
+    #[test]
+    fn accepts_semantic_cleanup_for_inline_spans() {
+        let output = diff_impl(
+            b"let value = compute(old_input)\n",
+            b"let value = compute(new_input)\n",
+            br#"{"inline":"words","semantic_cleanup":true}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+
+        assert_eq!(value["rows"][0]["kind"], "replace");
+        assert!(value["rows"][0]["old_spans"].is_array());
+        assert!(value["rows"][0]["new_spans"].is_array());
     }
 
     #[test]

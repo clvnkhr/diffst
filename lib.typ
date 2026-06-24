@@ -138,7 +138,7 @@
 
 #let _summary(colors, report) = block[
   #grid(
-    columns: (1fr, auto, auto, auto),
+    columns: (1fr, auto, auto, auto, auto),
     gutter: 6pt,
     align: horizon,
     [
@@ -152,6 +152,7 @@
         #report.stats.old_lines old lines, #report.stats.new_lines new lines
       ]
     ],
+    _pill(_color(colors, "header"), _color(colors, "text"), str(calc.round(report.stats.similarity * 100)) + "% similar"),
     _pill(_color(colors, "insert"), _color(colors, "insert-text"), "+" + str(report.stats.additions)),
     _pill(_color(colors, "delete"), _color(colors, "delete-text"), "-" + str(report.stats.deletions)),
     _pill(_color(colors, "replace"), _color(colors, "replace-text"), str(report.stats.changed_blocks) + " changed blocks"),
@@ -203,6 +204,7 @@
   show-whitespace: false,
   algorithm: "myers",
   inline: "chars",
+  semantic-cleanup: false,
 ) = {
   let old-content = read(old)
   let new-content = read(new)
@@ -211,6 +213,7 @@
     show_whitespace: show-whitespace,
     algorithm: algorithm,
     inline: inline,
+    semantic_cleanup: semantic-cleanup,
   ))
   let report = json(_engine.diff(bytes(old-content), bytes(new-content), bytes(options)))
 
@@ -241,6 +244,91 @@
   } else {
     panic("display must be \"full\" or \"collapsed\"")
   }
+}
+
+#let _previous_op(ops, op) = {
+  let previous = none
+  for candidate in ops {
+    if candidate.row_start < op.row_start {
+      previous = candidate
+    }
+  }
+  previous
+}
+
+#let _finish_hunk(report, hunk) = {
+  let rows = report.rows.slice(hunk.row_start, hunk.row_end)
+  let old-nos = rows
+    .filter(row => row.at("old_no", default: none) != none)
+    .map(row => row.old_no)
+  let new-nos = rows
+    .filter(row => row.at("new_no", default: none) != none)
+    .map(row => row.new_no)
+
+  (
+    ops: hunk.ops,
+    rows: rows,
+    row_start: hunk.row_start,
+    row_end: hunk.row_end,
+    context_before: hunk.context_before,
+    context_after: hunk.context_after,
+    old_start: if old-nos.len() == 0 { none } else { old-nos.first() },
+    old_len: old-nos.len(),
+    new_start: if new-nos.len() == 0 { none } else { new-nos.first() },
+    new_len: new-nos.len(),
+  )
+}
+
+#let diffst-hunks(report, context-lines: 3) = {
+  if context-lines < 0 {
+    panic("context-lines must be greater than or equal to 0")
+  }
+
+  let hunks = ()
+  let current = none
+
+  for op in report.ops {
+    if op.kind == "equal" {
+      if current != none {
+        let prefix = op.row_len - calc.min(op.row_len, context-lines)
+        current.ops.push(op)
+        current.row_end = op.row_start + op.row_len
+        current.context_after = calc.min(op.row_len, context-lines)
+
+        if prefix > context-lines {
+          current.row_end = op.row_start + context-lines
+          hunks.push(_finish_hunk(report, current))
+          current = none
+        }
+      }
+    } else {
+      if current == none {
+        current = (
+          ops: (),
+          row_start: op.row_start,
+          row_end: op.row_start,
+          context_before: 0,
+          context_after: 0,
+        )
+
+        let previous = _previous_op(report.ops, op)
+        if previous != none and previous.kind == "equal" {
+          current.ops.push(previous)
+          current.context_before = calc.min(previous.row_len, context-lines)
+          current.row_start = previous.row_start + previous.row_len - current.context_before
+        }
+      }
+
+      current.ops.push(op)
+      current.row_end = op.row_start + op.row_len
+    }
+  }
+
+  if current != none {
+    hunks.push(_finish_hunk(report, current))
+  }
+
+  hunks
 }
 
 #let diffst-summary(report, colors: (:)) = {
@@ -289,6 +377,7 @@
     show-whitespace: it.at("show-whitespace"),
     algorithm: it.algorithm,
     inline: it.inline,
+    semantic-cleanup: it.at("semantic-cleanup"),
   )
 
   diffst-layout(
@@ -312,6 +401,7 @@
     e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly in inline highlights.", default: false),
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
     e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "chars"),
+    e.field("semantic-cleanup", bool, doc: "Run similar's semantic cleanup pass on inline highlights.", default: false),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),

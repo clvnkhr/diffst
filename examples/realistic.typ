@@ -9,6 +9,7 @@
   "examples/paper-old.typ",
   "examples/paper-new.typ",
   inline: "words",
+  semantic-cleanup: true,
   show-whitespace: true,
   display: "collapsed",
   collapse-threshold: 6,
