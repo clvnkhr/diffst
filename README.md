@@ -89,7 +89,9 @@ be before it is collapsed.
 when a clock is available, but Typst plugins do not currently provide the host
 clock imports needed for a reliable WASM wall-clock cutoff.
 
-The summary includes a line similarity score. In manual layouts, use
+The summary includes a line similarity score. It is based on exactly matched
+lines, so a prose example with small edits on every line can show `0%` even
+when the lines are visually similar. In manual layouts, use
 `report.stats.similarity` for a `0.0` to `1.0` ratio and
 `report.stats.equal_lines` for the matched-line count.
 
