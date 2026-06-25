@@ -1,15 +1,315 @@
 # diffst
 
-`diffst` is a Typst package for presentable side-by-side document diff reports.
+`diffst` renders presentable side-by-side diff reports in Typst.
 
 ```typst
-#import "lib.typ": diffst
+#import "@preview/diffst:0.1.0": diffst
 
-#diffst("old.typ", "new.typ")
+#let old-file = "old.typ"
+#let new-file = "new.typ"
+
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+)
 ```
 
-The Typst package reads both files, passes their contents to a Rust WebAssembly
-plugin, and renders the structured diff as a side-by-side report.
+The package reads two text files, sends their contents to a Rust WebAssembly
+plugin powered by the Rust `similar` crate, and renders the structured diff as
+Typst content.
+
+Curious about the internals? See `impl.md` for the Rust/WASM boundary, report
+shape, and Typst rendering pipeline.
+
+## Quick Start
+
+```typst
+#import "@preview/diffst:0.1.0": diffst
+
+#let old-file = "draft-old.typ"
+#let new-file = "draft-new.typ"
+
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+  inline: "words",
+)
+```
+
+By default, `diffst` collapses long unchanged regions. Use `display: "full"` to
+show every line.
+
+```typst
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+  display: "full",
+)
+```
+
+When `diffst` is imported as a package, file paths inside the package resolve
+relative to the package. Read files at the call site with `read(...)` and pass
+the resulting strings through `old-content` and `new-content`. The `old` and
+`new` arguments are still used as labels in the rendered report.
+
+## Main Options
+
+```typst
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+  algorithm: "histogram",
+  inline: "words",
+  unicode: true,
+  semantic-cleanup: true,
+  ignore-whitespace: false,
+  show-whitespace: false,
+  display: "collapsed",
+  context-lines: 3,
+  collapse-threshold: 14,
+  table-layout: "split",
+  table-style: "default",
+)
+```
+
+- `algorithm`: `"histogram"`, `"myers"`, `"patience"`, `"lcs"`, or `"hunt"`.
+  Histogram is the default because it tends to produce readable changed blocks
+  for prose and reordered code. Myers is the classic baseline.
+- `inline`: `"words"`, `"chars"`, or `"none"`. Word mode is the default because
+  it reads better in reports; character mode is available for very fine-grained
+  edits.
+- `unicode`: when `true`, inline diffs use grapheme clusters and Unicode word
+  boundaries.
+- `semantic-cleanup`: uses `similar`'s compact inline diff adapter to make
+  inline highlights less fragmented and easier to read. It is on by default for
+  presentation; set it to `false` when you want more literal token-by-token
+  inline spans.
+- `ignore-whitespace`: compares lines while ignoring whitespace differences.
+- `show-whitespace`: makes changed spaces and tabs visible, and marks trailing
+  spaces or tabs on otherwise unchanged lines. Marker drawings are vector
+  overlays, so PDF copy/paste keeps the underlying whitespace.
+- `old-content` / `new-content`: already-read file contents. Use these with
+  package imports so `read(...)` runs in your document rather than inside the
+  package.
+- `display`: `"full"` or `"collapsed"`.
+- `context-lines`: unchanged lines to keep around collapsed regions.
+- `collapse-threshold`: unchanged run length required before collapsing.
+- `table-layout`: `"split"` or `"single"`. Split is the default and uses
+  synchronized tables so old/new content columns are easier to copy separately.
+  Single renders one Typst `table`.
+- `table-style`: `"default"`, `"minimal"`, `default-table-style`,
+  `minimal-table-style`, or a derived style dictionary.
+
+## Styling
+
+Override colors per report or document-wide through Elembic:
+
+```typst
+#import "@preview/elembic:1.1.1" as e
+#import "@preview/diffst:0.1.0": diffst, default-colors
+
+#show: e.set_(diffst, colors: default-colors + (
+  replace: rgb("#e0f2fe"),
+  inline-delete: rgb("#f0abfc"),
+  inline-insert: rgb("#67e8f9"),
+))
+
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+)
+```
+
+Available color keys:
+
+`text`, `line-no`, `border`, `header`, `equal`, `delete`, `insert`, `replace`,
+`inline-delete`, `inline-insert`, `inline-equal`, `delete-text`, `insert-text`,
+`replace-text`, `marker`, and `collapsed`.
+
+For printed papers or compact reports, use the minimal style:
+
+```typst
+#import "@preview/diffst:0.1.0": diffst, minimal-table
+
+#show: minimal-table
+
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+)
+```
+
+`minimal-table` sets `minimal-colors` and `minimal-table-style`. The minimal
+table keeps only the middle separator and the rule under the header while
+retaining colored inline highlights.
+
+Table style dictionaries control columns and stroke widths:
+
+```typst
+#import "@preview/diffst:0.1.0": diffst, default-table-style
+
+#diffst(
+  old-file,
+  new-file,
+  old-content: read(old-file),
+  new-content: read(new-file),
+  table-style: default-table-style + (
+    columns: (2em, 1fr, 2em, 1fr),
+    stroke-width: (header: 0.7pt, body: 0.35pt),
+  ),
+)
+```
+
+Prefer `#show table: set table(..)` and `#show table.cell: ...` for table
+styling. Broad wrappers such as `#show table: it => block(..)[#it]` can affect
+internal measurement tables used to synchronize row heights.
+
+## Composition API
+
+For custom reports, build from data upward:
+
+```typst
+#import "@preview/diffst:0.1.0": (
+  diffst-report,
+  diffst-summary,
+  diffst-table,
+  diffst-single-table,
+)
+
+#let report = diffst-report(
+  "paper-old.typ",
+  "paper-new.typ",
+  old-content: read("paper-old.typ"),
+  new-content: read("paper-new.typ"),
+  inline: "words",
+  semantic-cleanup: true,
+)
+
+#diffst-summary(report)
+
+#v(8pt)
+
+#diffst-table(report, range: (10, 18))
+
+#v(8pt)
+
+#diffst-single-table(report, range: (26, 34), range-side: "new")
+```
+
+The main composition layers are:
+
+- `diffst-report(old, new, ..)` returns structured diff data and metadata.
+- `diffst-summary(report, ..)` renders the file labels, line counts, and stat
+  pills.
+- `diffst-table(report, ..)` renders the default split-table diff.
+- `diffst-single-table(report, ..)` renders the one-table version.
+- `diffst-layout(report, ..)` renders the default full report: summary, spacing,
+  and table.
+
+`range: (start, end)` filters to an inclusive 1-based line range before
+`display` is applied. By default, rows are kept when either the old or new line
+number is in range. Use `range-side: "old"` or `range-side: "new"` to anchor the
+range to one file.
+
+Use `diffst-layout(..., body: (report, rows, colors) => ..)` when you want the
+default row filtering, range handling, and color resolution, but a custom final
+arrangement:
+
+```typst
+#diffst-layout(
+  report,
+  range: (10, 18),
+  body: (report, rows, colors) => [
+    #diffst-summary(report, colors: colors)
+    #v(4pt)
+    #diffst-single-table(report, rows: rows, colors: colors)
+  ],
+)
+```
+
+## Lower-Level Data Helpers
+
+Use these when you want to compute your own layout:
+
+- `diffst-rows(report, display: .., range: ..)` returns renderable row
+  dictionaries without emitting content.
+- `diffst-hunks(report, context-lines: ..)` returns hunk dictionaries with
+  `ops`, `rows`, `old_start`, `old_len`, `new_start`, and `new_len`.
+- `diffst-debug(report, rows: ..)` renders a compact debug panel.
+- `diffst-debug-raw(report, rows: ..)` returns debug data.
+- `diffst-labels-raw(report)` returns `(old, new)`.
+- `diffst-line-counts-raw(report)` returns old/new line counts.
+- `diffst-stat-raw(report, "similarity")` returns one numeric stat.
+- `diffst-stats-raw(report, stats: (..))` returns `(key, value)` dictionaries.
+- `diffst-row-counts-raw(rows)` returns visible row counts by kind.
+- `diffst-hunk-raw(hunk)` returns numeric hunk ranges and context sizes.
+- `diffst-hunks-raw(report, context-lines: ..)` returns raw hunk summaries.
+
+Supported stat keys are `"similarity"`, `"additions"`, `"deletions"`,
+`"changed-blocks"`, `"equal-lines"`, `"old-lines"`, and `"new-lines"`.
+
+## Copy/Paste Notes
+
+The default split layout uses separate synchronized tables for old line numbers,
+old content, new line numbers, and new content. This makes it easier to select
+one side of the diff in PDF viewers.
+
+Long unbroken code spans are clipped to the table cell instead of being broken
+with inserted characters. Visually wrapped lines may still copy with inserted
+newlines depending on the PDF viewer; that is a PDF text-extraction behavior,
+not an inserted character in the Typst source.
+
+## Metadata
+
+`report.meta` includes:
+
+`algorithm`, `inline`, `unicode`, `ignore_whitespace`, `show_whitespace`,
+`semantic_cleanup`, `old_trailing_newline`, `new_trailing_newline`,
+`old_line_endings`, `new_line_endings`, and `messages`.
+
+Line ending values are `"lf"`, `"crlf"`, `"cr"`, `"mixed"`, or `"none"`.
+When only the final trailing newline differs, the rendered diff adds a note row;
+raw newline and line-ending details remain available through `report.meta`.
+
+The summary's `x% similar lines` score is based on exactly matched lines. A
+prose diff with small edits on every line can therefore show `0% similar lines`
+even when the lines look visually similar.
+
+## Examples
+
+Focused option examples live in `examples/options/`:
+
+- algorithms: `algorithm-myers.typ`, `algorithm-patience.typ`,
+  `algorithm-histogram.typ`, `algorithm-lcs.typ`, `algorithm-hunt.typ`
+- inline modes: `inline-chars.typ`, `inline-words.typ`, `inline-none.typ`
+- display: `display-full.typ`, `display-collapsed.typ`,
+  `collapse-threshold.typ`, `context-lines.typ`
+- whitespace: `ignore-whitespace.typ`, `show-whitespace.typ`,
+  `trailing-whitespace.typ`, `trailing-newline.typ`
+- other: `unicode.typ`, `semantic-cleanup.typ`, `long-lines.typ`,
+  `table-layout.typ`, `debug.typ`, `hunks.typ`
+
+Larger examples:
+
+- `examples/basic.typ`
+- `examples/realistic.typ`
+- `examples/custom-colors.typ`
+- `examples/minimal-table.typ`
+- `examples/show-rules.typ`
+- `examples/manual-layout.typ`
+- `examples/partial-report.typ`
 
 ## Build
 
@@ -19,341 +319,16 @@ sh scripts/smoke.sh
 ```
 
 The smoke script runs `cargo test`, builds the WASM plugin, and compiles every
-`examples/**/*.typ` file to `${TMPDIR:-/tmp}/diffst-smoke`.
+example to `${TMPDIR:-/tmp}/diffst-smoke`.
 
 The package loads `plugin.wasm` from the repository root. `scripts/smoke.sh`
-refreshes that file from the release build before compiling examples.
+refreshes that package-local artifact from the release build before compiling
+examples.
 
-## Examples
+If `wasm-opt` from Binaryen is installed, the smoke script optimizes
+`plugin.wasm` with `wasm-opt -Oz --enable-bulk-memory`; otherwise it uses the
+Cargo release artifact directly.
 
-The `examples/options/` directory contains focused examples where each file
-turns on one option:
-
-- `algorithm-myers.typ`, `algorithm-patience.typ`, `algorithm-histogram.typ`,
-  `algorithm-lcs.typ`, and `algorithm-hunt.typ`
-- `inline-chars.typ`, `inline-words.typ`, and `inline-none.typ`
-- `long-lines.typ`
-- `unicode.typ`
-- `debug.typ`
-- `semantic-cleanup.typ`
-- `ignore-whitespace.typ`, `show-whitespace.typ`, `trailing-whitespace.typ`,
-  and `trailing-newline.typ`
-- `display-collapsed.typ` and `display-full.typ`
-- `context-lines.typ`
-- `collapse-threshold.typ`
-- `table-layout.typ`
-- `hunks.typ`
-
-`examples/custom-colors.typ` shows color overrides,
-`examples/minimal-table.typ` shows a print-friendly minimal table, and
-`examples/show-rules.typ` shows Typst show rules for styling the rendered
-blocks, tables, cells, and fonts around a report. `examples/partial-report.typ`
-shows how to reuse one report and render selected line ranges.
-
-## Options
-
-```typst
-#diffst(
-  "old.typ",
-  "new.typ",
-  algorithm: "patience",
-  inline: "words",
-  unicode: true,
-  semantic-cleanup: true,
-  ignore-whitespace: true,
-  show-whitespace: true,
-  display: "collapsed", // or "full"
-  context-lines: 3,
-  table-style: "default", // or "minimal", default-table-style, minimal-table-style, ...
-  table-layout: "split", // or "single"
-)
-```
-
-`algorithm` can be `"myers"`, `"patience"`, `"lcs"`, `"hunt"`, or
-`"histogram"`. Histogram is the default because it tends to produce readable
-changed blocks for prose and reordered code, while Myers is the classic
-baseline. LCS and Hunt are useful when you want to compare the underlying
-algorithms.
-
-`inline` controls how replaced lines are highlighted: `"words"` highlights
-word/punctuation chunks, `"chars"` highlights character-level edits, and
-`"none"` keeps only the changed-row background. Word mode is the default.
-
-`unicode` controls inline tokenization quality and defaults to `true`. With
-`inline: "chars"`, Unicode mode diffs grapheme clusters instead of raw Unicode
-scalar values, so emoji sequences and combining marks stay together. With
-`inline: "words"`, it uses Unicode word boundaries, which is better for
-research papers and multilingual prose.
-
-`semantic-cleanup` runs an extra cleanup pass on inline highlights to shift
-highlight boundaries toward more readable chunks.
-
-`show-whitespace` makes changed spaces and tabs visible inside inline
-highlights, and marks trailing spaces or tabs on otherwise unchanged lines. The
-marker drawings are vector overlays, so copying from the PDF keeps the
-underlying whitespace instead of copying marker glyphs.
-
-`context-lines` controls how many unchanged lines are kept before and after a
-collapsed region. `collapse-threshold` controls how long an unchanged run must
-be before it is collapsed.
-
-`table-style` controls the table columns and rules. The default style draws a
-light grid; `"minimal"` keeps only the center separator and the rule under the
-header. For a document-wide minimal style, use `#show: minimal-table`.
-
-`table-layout` controls the table structure. `"split"` is the default and uses
-synchronized side-by-side tables so old/new content columns are easier to select
-separately in PDFs. `"single"` renders the original one-node Typst `table`,
-which can be useful for show rules or custom layouts that need to target a
-single table.
-
-`default-table-style` and `minimal-table-style` are exported dictionaries, so
-table structure and stroke widths can be changed without rewriting the renderer.
-
-```typst
-#import "lib.typ": diffst, default-table-style
-
-#diffst(
-  "old.typ",
-  "new.typ",
-  table-style: default-table-style + (
-    columns: (2em, 1fr, 2em, 1fr),
-    stroke-width: (header: 0.7pt, body: 0.35pt),
-  ),
-)
-```
-
-`deadline-ms` is intentionally not exposed. `similar` can use real deadlines
-when a clock is available, but Typst plugins do not currently provide the host
-clock imports needed for a reliable WASM wall-clock cutoff.
-
-The summary includes an `x% similar lines` score. It is based on exactly matched
-lines, so a prose example with small edits on every line can show
-`0% similar lines` even when the lines are visually similar. In manual layouts, use
-`report.stats.similarity` for a `0.0` to `1.0` ratio and
-`report.stats.equal_lines` for the matched-line count.
-
-The rendered diff adds a marker row when only the final trailing newline
-differs. Raw trailing-newline and line-ending details are exposed through
-`report.meta`.
-
-Long unbroken code spans are clipped to the table cell instead of being broken
-with inserted characters. This keeps copied text clean while preventing a single
-token from drawing outside the report.
-
-The rendered diff uses separate synchronized tables for old line numbers, old
-content, new line numbers, and new content. This makes it easier to select and
-copy one side of the diff independently. PDF viewers may still insert newline
-characters when copying visually wrapped lines; that is a PDF text-extraction
-limitation rather than an inserted character in the rendered source.
-
-Avoid broad `#show table: it => block(..)[#it]` wrappers around diff reports.
-`diffst` measures internal table prototypes to synchronize row heights, so
-wrapping every table adds that wrapper's padding to each measured row. Prefer
-`#show table: set table(..)` and `#show table.cell: ...` rules for table styling.
-
-## Colors
-
-`diffst` is an Elembic element, so colors can be changed for one report or set
-document-wide.
-
-```typst
-#import "@preview/elembic:1.1.1" as e
-#import "lib.typ": diffst, default-colors
-
-#show: e.set_(diffst, colors: default-colors + (
-  replace: rgb("#e0f2fe"),
-  inline-delete: rgb("#f0abfc"),
-  inline-insert: rgb("#67e8f9"),
-))
-
-#diffst("old.typ", "new.typ")
-```
-
-Available keys are `text`, `line-no`, `border`, `header`, `equal`, `delete`,
-`insert`, `replace`, `inline-delete`, `inline-insert`, `inline-equal`,
-`delete-text`, `insert-text`, `replace-text`, `marker`, and `collapsed`.
-
-For printed papers or reports, `minimal-colors` and `minimal-table` provide a
-more minimal style. The minimal table keeps only the middle separator and the
-rule under the header, while keeping colored inline highlights for changed
-words or characters.
-
-```typst
-#import "lib.typ": diffst, minimal-table
-
-#show: minimal-table
-
-#diffst("old.typ", "new.typ")
-```
-
-## Manual Layouts
-
-The default `#diffst(..)` call is built from smaller functions that can be
-arranged manually.
-
-```typst
-#import "lib.typ": (
-  diffst-report,
-  diffst-debug,
-  diffst-debug-raw,
-  diffst-hunks,
-  diffst-labels-raw,
-  diffst-line-counts-raw,
-  diffst-rows,
-  diffst-stat-raw,
-  diffst-summary,
-  diffst-summary-stat,
-  diffst-summary-title,
-  diffst-single-table,
-  diffst-table,
-  minimal-table-style,
-  minimal-colors,
-)
-
-#let report = diffst-report("old.typ", "new.typ", show-whitespace: true)
-#let hunks = diffst-hunks(report, context-lines: 2)
-#let labels = diffst-labels-raw(report)
-#let lines = diffst-line-counts-raw(report)
-#let similarity = diffst-stat-raw(report, "similarity")
-#let rows = diffst-rows(
-  report,
-  display: "collapsed",
-  collapse-threshold: 8,
-  context-lines: 2,
-)
-
-#grid(
-  columns: (1fr, auto),
-  [#diffst-summary(report, stats: ("similarity", "additions"))],
-  [
-    #align(right)[
-      #labels.old -> #labels.new\
-      #lines.old old lines, #lines.new new lines\
-      #similarity% similar lines\
-      #linebreak()
-      #diffst-summary-stat(report, "changed-blocks")
-    ]
-  ],
-)
-
-#v(8pt)
-#diffst-debug(report, rows: rows)
-
-#v(8pt)
-#diffst-table(report, rows: rows)
-
-#v(8pt)
-#diffst-table(report, rows: rows, colors: minimal-colors, table-style: minimal-table-style)
-
-#v(8pt)
-#diffst-single-table(report, rows: rows)
-```
-
-`report.ops` exposes the raw line-level diff operations returned by the WASM
-engine. Each op includes its kind, old/new line ranges, and corresponding row
-range. `diffst-hunks(report, context-lines: 2)` groups those ops into hunk
-dictionaries with `ops`, `rows`, `old_start`, `old_len`, `new_start`, and
-`new_len` fields for custom layouts.
-
-Use `range: (10, 18)` on `diffst-rows`, `diffst-table`,
-`diffst-single-table`, or `diffst-layout` to render an inclusive 1-based line
-range. By default it keeps rows whose old or new line number is in range; set
-`range-side: "old"` or `range-side: "new"` to anchor the range to one file.
-Range filtering happens before collapsed/full display rows are computed.
-
-`diffst-layout(report, table-layout: "single", body: (report, rows, colors) => ..)`
-is available when you want to keep the default row filtering but replace the
-final arrangement.
-
-`report.meta` exposes the resolved debug metadata from the WASM engine:
-`algorithm`, `inline`, `unicode`, `ignore_whitespace`, `show_whitespace`,
-`semantic_cleanup`, `old_trailing_newline`, `new_trailing_newline`,
-`old_line_endings`, `new_line_endings`, and a `messages` array. Line ending
-values are `"lf"`, `"crlf"`, `"cr"`, `"mixed"`, or `"none"`. Use
-`diffst-debug(report, rows: ..)` to render those diagnostics in the document, or
-`diffst-debug-raw(report, rows: ..)` to receive the same diagnostics as data for
-a custom smoke panel.
-
-For layouts that want numbers and labels instead of prebuilt content, diffst
-also exposes raw helpers:
-
-- `diffst-labels-raw(report)` returns `(old, new)`.
-- `diffst-line-counts-raw(report)` returns `(old, new)` line counts.
-- `diffst-stat-raw(report, "similarity")` returns one number. Supported raw
-  stats are `"similarity"`, `"additions"`, `"deletions"`, `"changed-blocks"`,
-  `"equal-lines"`, `"old-lines"`, and `"new-lines"`.
-- `diffst-stats-raw(report, stats: (..))` returns an array of
-  `(key, value)` dictionaries.
-- `diffst-row-counts-raw(rows)` returns visible row counts by kind plus hidden
-  collapsed rows.
-- `diffst-hunk-raw(hunk)` returns numeric hunk ranges and context sizes.
-- `diffst-hunks-raw(report, context-lines: ..)` returns raw hunk summaries.
-- `diffst-debug-raw(report, rows: ..)` returns metadata, stats, row counts,
-  op/hunk counts, and debug messages.
-
-The summary is also split into smaller pieces:
-
-- `diffst-summary-title(report, colors: ..)` combines the file label and line
-  counts.
-- `diffst-summary-label(report, colors: ..)` renders only the file labels.
-- `diffst-summary-lines(report, colors: ..)` renders only the old/new line
-  counts.
-- `diffst-summary-stat(report, "similarity", colors: ..)` renders one stat
-  pill. Supported stats are `"similarity"`, `"additions"`, `"deletions"`, and
-  `"changed-blocks"`.
-- `diffst-summary-stats(report, stats: (..), colors: ..)` returns an array of
-  stat pills that can be spread into your own grid or stack.
-- `diffst-pill(fill, fg, body)` is the small filled `box` primitive used by the
-  default stats.
-- `diffst-summary(report, title: .., stats: (..), body: ..)` keeps the default
-  wrapper but lets you replace the title, choose stats, or provide a custom
-  summary function with `body: (report, colors) => ..`.
-- `diffst-debug(report, rows: ..)` renders the debug metadata and messages as
-  a compact block plus table.
-
-## Rendering Structure
-
-The default renderer is ordinary Typst content, so custom layouts can wrap or
-replace each layer.
-
-- `#diffst(..)` is an Elembic element. Its display function calls
-  `diffst-report(..)` and `diffst-layout(..)`.
-- `diffst-layout(..)` returns a `block(width: 100%)` containing the summary,
-  vertical spacing, and the diff table. Its `table-layout` option chooses the
-  split-table or single-table renderer. Its `range` and `range-side` options
-  can render only a slice of the report. If `body` is supplied, it calls
-  `body(report, rows, colors)` instead.
-- `diffst-summary(..)` returns a `block` containing a `grid`. It is composed
-  from `diffst-summary-title(..)` and `diffst-summary-stats(..)`. The file
-  labels and line counts are text, and the stats are small filled `box` pills
-  created by `diffst-pill(..)`.
-- `diffst-table(..)` returns synchronized side-by-side tables for the old line
-  numbers, old content, new line numbers, and new content. They visually read as
-  one diff table while keeping the content columns easier to select separately.
-  The column sizes and rule widths come from `table-style`, which
-  may be `default-table-style`, `minimal-table-style`, a dictionary derived from
-  one of them, or the compatibility strings `"default"` and `"minimal"`.
-- `diffst-single-table(..)` returns the original single Typst `table` version
-  for custom layouts that need one table node instead of separately selectable
-  synchronized tables. It accepts the same `rows`, `colors`, and `table-style`
-  arguments as `diffst-table(..)`.
-- `diffst-table(..)` and `diffst-single-table(..)` can compute their own rows
-  with `display`, `collapse-threshold`, `context-lines`, `range`, and
-  `range-side`, or render an explicit `rows` array from `diffst-rows(..)`.
-- `minimal-table` is a show rule that sets `colors: minimal-colors` and
-  `table-style: minimal-table-style` for all `diffst` elements in its scope.
-- Code cells use Typst inline `raw` text, so the document's raw-text styling
-  controls the monospace font. Inline highlights are `highlight` elements around
-  that raw text.
-- `diffst-rows(..)` returns row dictionaries for table helpers; it can apply
-  collapsed/full display filtering and line-range filtering without emitting
-  content.
-- `diffst-hunks(..)` returns hunk dictionaries with `ops` and `rows`; it does
-  not emit content.
-- `diffst-debug(..)` returns a `block` containing a `grid`, a two-column
-  `table`, and text debug messages.
-- The `*-raw(..)` helpers return labels, numbers, counts, or numeric hunk
-  summaries; they do not emit content.
-- `diffst-report(..)` returns data from the WASM engine plus `old` and `new`
-  labels; it does not emit content.
+`deadline-ms` is intentionally not exposed. The `similar` crate can use real
+deadlines when a clock is available, but Typst plugins do not currently provide
+the host clock imports needed for a reliable WASM wall-clock cutoff.

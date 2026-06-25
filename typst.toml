@@ -5,4 +5,7 @@ entrypoint = "lib.typ"
 authors = ["Calvin Khor"]
 license = "MIT"
 description = "Side-by-side document diff reports for Typst."
-
+repository = "https://github.com/calvinkhor/diffst"
+keywords = ["diff", "comparison", "review", "wasm"]
+categories = ["utility"]
+compiler = "0.15.0"

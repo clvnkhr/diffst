@@ -784,6 +784,8 @@
 #let diffst-report(
   old,
   new,
+  old-content: auto,
+  new-content: auto,
   ignore-whitespace: false,
   show-whitespace: false,
   algorithm: "histogram",
@@ -791,8 +793,8 @@
   unicode: true,
   semantic-cleanup: true,
 ) = {
-  let old-content = read(old)
-  let new-content = read(new)
+  let old-content = if old-content == auto { read(old) } else { old-content }
+  let new-content = if new-content == auto { read(new) } else { new-content }
   let options = json.encode((
     ignore_whitespace: ignore-whitespace,
     show_whitespace: show-whitespace,
@@ -1176,6 +1178,8 @@
   let report = diffst-report(
     it.old,
     it.new,
+    old-content: it.at("old-content"),
+    new-content: it.at("new-content"),
     ignore-whitespace: it.at("ignore-whitespace"),
     show-whitespace: it.at("show-whitespace"),
     algorithm: it.algorithm,
@@ -1201,8 +1205,10 @@
   doc: "Renders a side-by-side diff report for two text files.",
   display: _display,
   fields: (
-    e.field("old", str, doc: "Path to the old file.", required: true),
-    e.field("new", str, doc: "Path to the new file.", required: true),
+    e.field("old", str, doc: "Path or label for the old file.", required: true),
+    e.field("new", str, doc: "Path or label for the new file.", required: true),
+    e.field("old-content", e.types.any, doc: "Already-read old file contents. Use this for package imports where paths are relative to the caller.", default: auto),
+    e.field("new-content", e.types.any, doc: "Already-read new file contents. Use this for package imports where paths are relative to the caller.", default: auto),
     e.field("ignore-whitespace", bool, doc: "Ignore whitespace while diffing lines.", default: false),
     e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly, and mark trailing whitespace on unchanged lines.", default: false),
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "histogram"),
@@ -1221,6 +1227,8 @@
 #let diffst(
   old: none,
   new: none,
+  old-content: auto,
+  new-content: auto,
   ignore-whitespace: false,
   show-whitespace: false,
   algorithm: "histogram",
@@ -1266,6 +1274,8 @@
   _diffst-element(
     old,
     new,
+    old-content: old-content,
+    new-content: new-content,
     ignore-whitespace: ignore-whitespace,
     show-whitespace: show-whitespace,
     algorithm: algorithm,
