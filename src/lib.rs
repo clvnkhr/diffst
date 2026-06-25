@@ -201,14 +201,16 @@ impl<'a> ReportBuilder<'a> {
         self.report.stats.equal_lines += len;
 
         for offset in 0..len {
+            let old_line = &self.old_lines[old_index + offset];
+            let new_line = &self.new_lines[new_index + offset];
             self.report.rows.push(DiffRow {
                 kind: "equal",
                 old_no: Some(old_index + offset + 1),
-                old: Some(self.old_lines[old_index + offset].as_str()),
-                old_spans: None,
+                old: Some(old_line.as_str()),
+                old_spans: equal_spans(old_line, self.options.show_whitespace),
                 new_no: Some(new_index + offset + 1),
-                new: Some(self.new_lines[new_index + offset].as_str()),
-                new_spans: None,
+                new: Some(new_line.as_str()),
+                new_spans: equal_spans(new_line, self.options.show_whitespace),
             });
         }
 
@@ -226,7 +228,7 @@ impl<'a> ReportBuilder<'a> {
                 kind: "delete",
                 old_no: Some(old_index + offset + 1),
                 old: Some(old_line.as_str()),
-                old_spans: Some(vec![deleted_span(old_line, self.options.show_whitespace)]),
+                old_spans: Some(deleted_spans(old_line, self.options.show_whitespace)),
                 new_no: None,
                 new: None,
                 new_spans: None,
@@ -250,7 +252,7 @@ impl<'a> ReportBuilder<'a> {
                 old_spans: None,
                 new_no: Some(new_index + offset + 1),
                 new: Some(new_line.as_str()),
-                new_spans: Some(vec![inserted_span(new_line, self.options.show_whitespace)]),
+                new_spans: Some(inserted_spans(new_line, self.options.show_whitespace)),
             });
         }
 
@@ -464,29 +466,31 @@ fn replace_spans(
             options.semantic_cleanup,
         ),
         (Some(old_line), None) => Ok((
-            Some(vec![deleted_span(old_line, options.show_whitespace)]),
+            Some(deleted_spans(old_line, options.show_whitespace)),
             None,
         )),
         (None, Some(new_line)) => Ok((
             None,
-            Some(vec![inserted_span(new_line, options.show_whitespace)]),
+            Some(inserted_spans(new_line, options.show_whitespace)),
         )),
         (None, None) => Ok((None, None)),
     }
 }
 
-fn deleted_span(text: &str, show_whitespace: bool) -> InlineSpan {
-    InlineSpan {
-        kind: "delete",
-        text: display_text(text, show_whitespace),
-    }
+fn deleted_spans(text: &str, show_whitespace: bool) -> Vec<InlineSpan> {
+    display_spans(text, "delete", show_whitespace)
 }
 
-fn inserted_span(text: &str, show_whitespace: bool) -> InlineSpan {
-    InlineSpan {
-        kind: "insert",
-        text: display_text(text, show_whitespace),
+fn inserted_spans(text: &str, show_whitespace: bool) -> Vec<InlineSpan> {
+    display_spans(text, "insert", show_whitespace)
+}
+
+fn equal_spans(text: &str, show_whitespace: bool) -> Option<Vec<InlineSpan>> {
+    if !show_whitespace || !has_trailing_horizontal_whitespace(text) {
+        return None;
     }
+
+    Some(display_trailing_whitespace_spans(text))
 }
 
 fn inline_spans(
@@ -685,29 +689,81 @@ fn push_span<'a>(
     tokens: impl Iterator<Item = &'a String>,
     show_whitespace: bool,
 ) {
-    let text = tokens
-        .flat_map(|token| token.chars())
-        .map(|ch| display_char(ch, show_whitespace))
-        .collect::<String>();
-
-    if text.is_empty() {
-        return;
+    for ch in tokens.flat_map(|token| token.chars()) {
+        push_display_char(spans, kind, ch, show_whitespace);
     }
+}
 
+fn push_display_char(
+    spans: &mut Vec<InlineSpan>,
+    kind: &'static str,
+    ch: char,
+    show_whitespace: bool,
+) {
+    let displayed = display_char(ch, show_whitespace);
+    let kind = if show_whitespace && is_whitespace_marker(displayed) {
+        marker_kind(kind)
+    } else {
+        kind
+    };
+
+    push_text(spans, kind, displayed);
+}
+
+fn push_text(spans: &mut Vec<InlineSpan>, kind: &'static str, ch: char) {
     if let Some(last) = spans.last_mut() {
         if last.kind == kind {
-            last.text.push_str(&text);
+            last.text.push(ch);
             return;
         }
     }
 
-    spans.push(InlineSpan { kind, text });
+    spans.push(InlineSpan {
+        kind,
+        text: ch.to_string(),
+    });
 }
 
-fn display_text(text: &str, show_whitespace: bool) -> String {
-    text.chars()
-        .map(|ch| display_char(ch, show_whitespace))
-        .collect()
+fn display_spans(text: &str, kind: &'static str, show_whitespace: bool) -> Vec<InlineSpan> {
+    let mut spans = Vec::new();
+
+    for ch in text.chars() {
+        push_display_char(&mut spans, kind, ch, show_whitespace);
+    }
+
+    spans
+}
+
+fn display_trailing_whitespace_spans(text: &str) -> Vec<InlineSpan> {
+    let start = trailing_horizontal_whitespace_start(text);
+    let mut spans = Vec::new();
+
+    for ch in text[..start].chars() {
+        push_display_char(&mut spans, "equal", ch, false);
+    }
+    for ch in text[start..].chars() {
+        push_display_char(&mut spans, "equal", ch, true);
+    }
+
+    spans
+}
+
+fn has_trailing_horizontal_whitespace(text: &str) -> bool {
+    trailing_horizontal_whitespace_start(text) < text.len()
+}
+
+fn trailing_horizontal_whitespace_start(text: &str) -> usize {
+    let mut start = text.len();
+
+    for (index, ch) in text.char_indices().rev() {
+        if ch == ' ' || ch == '\t' {
+            start = index;
+        } else {
+            break;
+        }
+    }
+
+    start
 }
 
 fn display_char(ch: char, show_whitespace: bool) -> char {
@@ -718,7 +774,21 @@ fn display_char(ch: char, show_whitespace: bool) -> char {
     match ch {
         ' ' => '·',
         '\t' => '→',
+        '\n' => '↵',
+        '\r' => '␍',
         _ => ch,
+    }
+}
+
+fn is_whitespace_marker(ch: char) -> bool {
+    matches!(ch, '·' | '→' | '↵' | '␍')
+}
+
+fn marker_kind(kind: &'static str) -> &'static str {
+    match kind {
+        "delete" => "delete-marker",
+        "insert" => "insert-marker",
+        _ => "equal-marker",
     }
 }
 
@@ -857,7 +927,45 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .any(|span| span["text"].as_str().unwrap().contains('·')));
+            .any(|span| span["kind"] == "insert-marker"
+                && span["text"].as_str().unwrap().contains('·')));
+    }
+
+    #[test]
+    fn can_mark_trailing_whitespace_on_equal_lines() {
+        let output = diff_impl(
+            b"let x = 1  \n\ttrimmed\t\n",
+            b"let x = 1  \n\ttrimmed\t\n",
+            br#"{"show_whitespace":true}"#,
+        )
+        .unwrap();
+        let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
+        let rows = value["rows"].as_array().unwrap();
+
+        assert_eq!(rows[0]["old_spans"][0]["text"], "let x = 1");
+        assert_eq!(rows[0]["old_spans"][1]["kind"], "equal-marker");
+        assert_eq!(rows[0]["old_spans"][1]["text"], "··");
+        assert_eq!(rows[1]["old_spans"][0]["text"], "\ttrimmed");
+        assert_eq!(rows[1]["old_spans"][1]["kind"], "equal-marker");
+        assert_eq!(rows[1]["old_spans"][1]["text"], "→");
+        assert_eq!(rows[0]["new_spans"][1]["kind"], "equal-marker");
+        assert_eq!(rows[0]["new_spans"][1]["text"], "··");
+        assert_eq!(rows[1]["new_spans"][1]["kind"], "equal-marker");
+        assert_eq!(rows[1]["new_spans"][1]["text"], "→");
+    }
+
+    #[test]
+    fn can_mark_newline_chars_when_displaying_whitespace() {
+        let spans = display_spans("a\nb\r\n", "equal", true);
+
+        assert_eq!(spans[0].kind, "equal");
+        assert_eq!(spans[0].text, "a");
+        assert_eq!(spans[1].kind, "equal-marker");
+        assert_eq!(spans[1].text, "↵");
+        assert_eq!(spans[2].kind, "equal");
+        assert_eq!(spans[2].text, "b");
+        assert_eq!(spans[3].kind, "equal-marker");
+        assert_eq!(spans[3].text, "␍↵");
     }
 
     #[test]

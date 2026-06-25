@@ -17,6 +17,7 @@
   delete-text: rgb("#7f1d1d"),
   insert-text: rgb("#14532d"),
   replace-text: rgb("#713f12"),
+  marker: rgb("#2563eb"),
   collapsed: rgb("#f7f8fb"),
 )
 
@@ -35,6 +36,7 @@
   delete-text: black,
   insert-text: black,
   replace-text: black,
+  marker: rgb("#2563eb"),
   collapsed: white,
 )
 
@@ -90,9 +92,9 @@
 }
 
 #let _span-fill(colors, kind) = {
-  if kind == "delete" {
+  if kind == "delete" or kind == "delete-marker" {
     _color(colors, "inline-delete")
-  } else if kind == "insert" {
+  } else if kind == "insert" or kind == "insert-marker" {
     _color(colors, "inline-insert")
   } else {
     _color(colors, "inline-equal")
@@ -100,7 +102,9 @@
 }
 
 #let _span-text-fill(colors, kind) = {
-  if kind == "delete" {
+  if kind == "delete-marker" or kind == "insert-marker" or kind == "equal-marker" {
+    _color(colors, "marker")
+  } else if kind == "delete" {
     _color(colors, "delete-text")
   } else if kind == "insert" {
     _color(colors, "insert-text")
@@ -109,10 +113,74 @@
   }
 }
 
-#let _code-span(colors, span) = {
-  let body = _mono(span.text, fill: _span-text-fill(colors, span.kind))
+#let _marker-shape(marker, fill) = {
+  if marker == "·" {
+    circle(radius: 0.75pt, fill: fill)
+  } else if marker == "→" {
+    polygon(
+      (0pt, 1.2pt),
+      (2.2pt, 1.2pt),
+      (2.2pt, 0.45pt),
+      (3.8pt, 1.5pt),
+      (2.2pt, 2.55pt),
+      (2.2pt, 1.8pt),
+      (0pt, 1.8pt),
+      fill: fill,
+    )
+  } else if marker == "↵" {
+    [
+      #line(start: (3.5pt, 0pt), end: (3.5pt, 3pt), stroke: 0.55pt + fill)
+      #line(start: (1pt, 3pt), end: (4pt, 3pt), stroke: 0.55pt + fill)
+      #place(dx: 0pt, dy: 1.75pt)[
+        #polygon((0pt, 1.25pt), (2pt, 0pt), (2pt, 2.5pt), fill: fill)
+      ]
+    ]
+  } else if marker == "␍" {
+    [
+      #rect(width: 5pt, height: 5pt, stroke: 0.55pt + fill)
+      #line(start: (1pt, 2.5pt), end: (4pt, 2.5pt), stroke: 0.55pt + fill)
+    ]
+  } else {
+    circle(radius: 0.75pt, fill: fill)
+  }
+}
 
-  if span.kind == "equal" {
+#let _marker-span(colors, markers, background: none) = {
+  let fill = _color(colors, "marker")
+  context {
+    let column-width = measure(text(size: _code-size)[#raw(" ", block: false)]).width
+    for marker in markers.clusters() {
+      let shape-width = if marker == "·" { 1.5pt } else if marker == "→" { 3.8pt } else if marker == "␍" { 5pt } else { 6pt }
+      let shape-height = if marker == "·" { 1.5pt } else if marker == "→" { 3pt } else { 5pt }
+      let baseline-shift = if marker == "·" { 2.35pt } else { shape-height }
+
+      box(width: column-width)[
+        #if background == none {
+          raw(" ", block: false)
+        } else {
+          highlight(fill: background)[#raw(" ", block: false)]
+        }
+        #place(
+          dx: (column-width - shape-width) / 2,
+          dy: -baseline-shift,
+        )[
+          #_marker-shape(marker, fill)
+        ]
+      ]
+    }
+  }
+}
+
+#let _code-span(colors, span) = {
+  let is-marker = span.kind == "delete-marker" or span.kind == "insert-marker" or span.kind == "equal-marker"
+  let marker-background = if is-marker { _span-fill(colors, span.kind) } else { none }
+  let body = if is-marker {
+    _marker-span(colors, span.text, background: marker-background)
+  } else {
+    _mono(span.text, fill: _span-text-fill(colors, span.kind))
+  }
+
+  if is-marker or span.kind == "equal" {
     body
   } else {
     highlight(
@@ -122,16 +190,18 @@
 }
 
 #let _code(colors, value, spans: none) = {
-  block(clip: true)[
-    #if spans != none {
-      for span in spans {
-        _code-span(colors, span)
+  text(top-edge: "bounds", bottom-edge: "bounds")[
+    #box(clip: true)[
+      #if spans != none {
+        for span in spans {
+          _code-span(colors, span)
+        }
+      } else if value == none {
+        _mono("")
+      } else {
+        _mono(value, fill: _color(colors, "text"))
       }
-    } else if value == none {
-      _mono("")
-    } else {
-      _mono(value, fill: _color(colors, "text"))
-    }
+    ]
   ]
 }
 
@@ -375,14 +445,14 @@
     ()
   } else {
     let old-state = if report.meta.old_trailing_newline {
-      "old file ends with a newline"
+      "old file ends with newline ↵"
     } else {
-      "old file has no trailing newline"
+      "old file has no trailing newline ∅"
     }
     let new-state = if report.meta.new_trailing_newline {
-      "new file ends with a newline"
+      "new file ends with newline ↵"
     } else {
-      "new file has no trailing newline"
+      "new file has no trailing newline ∅"
     }
 
     (
@@ -808,7 +878,7 @@
     e.field("old", str, doc: "Path to the old file.", required: true),
     e.field("new", str, doc: "Path to the new file.", required: true),
     e.field("ignore-whitespace", bool, doc: "Ignore whitespace while diffing lines.", default: false),
-    e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly in inline highlights.", default: false),
+    e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly, and mark trailing whitespace on unchanged lines.", default: false),
     e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
     e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "chars"),
     e.field("unicode", bool, doc: "Use Unicode-aware inline tokenization for graphemes and word boundaries.", default: true),

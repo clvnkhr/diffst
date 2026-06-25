@@ -33,7 +33,8 @@ turns on one option:
 - `unicode.typ`
 - `debug.typ`
 - `semantic-cleanup.typ`
-- `ignore-whitespace.typ` and `show-whitespace.typ`
+- `ignore-whitespace.typ`, `show-whitespace.typ`, `trailing-whitespace.typ`,
+  and `trailing-newline.typ`
 - `display-collapsed.typ` and `display-full.typ`
 - `context-lines.typ`
 - `collapse-threshold.typ`
@@ -80,7 +81,8 @@ research papers and multilingual prose.
 `semantic-cleanup` runs an extra cleanup pass on inline highlights to shift
 highlight boundaries toward more readable chunks.
 
-`show-whitespace` makes changed spaces and tabs visible inside inline highlights.
+`show-whitespace` makes changed spaces and tabs visible inside inline
+highlights, and marks trailing spaces or tabs on otherwise unchanged lines.
 
 `context-lines` controls how many unchanged lines are kept before and after a
 collapsed region. `collapse-threshold` controls how long an unchanged run must
@@ -116,9 +118,9 @@ lines, so a prose example with small edits on every line can show
 `report.stats.similarity` for a `0.0` to `1.0` ratio and
 `report.stats.equal_lines` for the matched-line count.
 
-The default table compares rendered line content and adds a note when only the
-final trailing newline differs. Raw newline and line-ending details are exposed
-through `report.meta`.
+The default table compares rendered line content and adds a marker row when only
+the final trailing newline differs. Raw newline and line-ending details are
+exposed through `report.meta`.
 
 Long unbroken code spans are clipped to the table cell instead of being broken
 with inserted characters. This keeps copied text clean while preventing a single
@@ -144,7 +146,7 @@ document-wide.
 
 Available keys are `text`, `line-no`, `border`, `header`, `equal`, `delete`,
 `insert`, `replace`, `inline-delete`, `inline-insert`, `inline-equal`,
-`delete-text`, `insert-text`, `replace-text`, and `collapsed`.
+`delete-text`, `insert-text`, `replace-text`, `marker`, and `collapsed`.
 
 For printed papers or reports, `minimal-colors` and `minimal-table` provide a
 more minimal style. The minimal table keeps only the middle separator and the

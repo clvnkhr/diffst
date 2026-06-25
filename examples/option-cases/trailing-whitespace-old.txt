@@ -1,0 +1,5 @@
+unchanged line with trailing spaces  
+unchanged line with a trailing tab	
+changed indentation:
+    record(value)
+changed inner spacing: alpha  beta
