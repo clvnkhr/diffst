@@ -5,6 +5,9 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
 
 ## Fixed in the latest pass
 
+- Item 1: `lib.typ` now loads a package-local `plugin.wasm` instead of the
+  development-only `target/wasm32-unknown-unknown/release/...` path.
+  `scripts/smoke.sh` refreshes that artifact after the release WASM build.
 - Item 5: `diffst-hunks` now carries the previous op through the loop instead
   of scanning all earlier ops each time a hunk starts. `examples/options/hunks.typ`
   adds compile-time assertions for hunk count and context.
@@ -24,17 +27,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
 
 ## Findings
 
-### 1. Package still depends on a development-only WASM path
-
-- `lib.typ:3` hardcodes `target/wasm32-unknown-unknown/release/diffst_wasm.wasm`.
-- This works for local development and for `scripts/smoke.sh`, but it is not a
-  packageable layout. A clean user checkout or Typst package install will not
-  have `target/...` unless they build Rust first.
-- Suggested fix: decide on the release layout now. For distribution, commit or
-  generate the WASM artifact into a stable package path such as `plugin.wasm`,
-  then load that from `lib.typ`.
-
-### 2. Smoke tests compile examples but do not assert rendered content
+### 1. Smoke tests compile examples but do not assert rendered content
 
 - `scripts/smoke.sh:10-12` compiles every example to a PDF, which is a useful
   syntax/integration check.
@@ -44,7 +37,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
   and `diffst-row-counts-raw`; optionally export a few stable examples to SVG or
   PNG for snapshot comparison.
 
-### 3. Theme customization stops at colors
+### 2. Theme customization stops at colors
 
 - `lib.typ:23-40` centralizes typography constants, which is cleaner, but font
   family and sizes are still private constants.
@@ -55,7 +48,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
   typography/padding fields on the Elembic element if styling flexibility is a
   package goal.
 
-### 4. Error messages expose Rust/serde wording directly
+### 3. Error messages expose Rust/serde wording directly
 
 - `Options::from_json` in `src/lib.rs:101-103` wraps serde errors as
   `invalid options JSON: ...`.
@@ -64,7 +57,7 @@ risky, awkward, under-tested, or release-blocking in the current working tree.
 - Suggested fix: keep serde for validation, but add targeted tests for the most
   common user mistakes and decide whether the raw messages are acceptable.
 
-### 5. `algorithm_name` has an unreachable fallback
+### 4. `algorithm_name` has an unreachable fallback
 
 - `src/lib.rs:646-654` returns `"unknown"` for algorithms outside the known
   variants.

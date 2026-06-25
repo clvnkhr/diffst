@@ -7,6 +7,7 @@ mkdir -p "$out_dir"
 
 cargo test
 cargo build --release --target wasm32-unknown-unknown
+cp target/wasm32-unknown-unknown/release/diffst_wasm.wasm plugin.wasm
 
 find examples -type f -name '*.typ' | sort | while IFS= read -r example; do
   out_file="$out_dir/$(printf '%s' "$example" | tr '/.' '__').pdf"

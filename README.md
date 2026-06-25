@@ -21,6 +21,9 @@ sh scripts/smoke.sh
 The smoke script runs `cargo test`, builds the WASM plugin, and compiles every
 `examples/**/*.typ` file to `${TMPDIR:-/tmp}/diffst-smoke`.
 
+The package loads `plugin.wasm` from the repository root. `scripts/smoke.sh`
+refreshes that file from the release build before compiling examples.
+
 ## Examples
 
 The `examples/options/` directory contains focused examples where each file
@@ -67,13 +70,14 @@ shows how to reuse one report and render selected line ranges.
 ```
 
 `algorithm` can be `"myers"`, `"patience"`, `"lcs"`, `"hunt"`, or
-`"histogram"`. Myers is the default. Patience and histogram can be more readable
-for reordered prose or code, while LCS and Hunt are useful when you want to
-compare the underlying algorithms.
+`"histogram"`. Histogram is the default because it tends to produce readable
+changed blocks for prose and reordered code, while Myers is the classic
+baseline. LCS and Hunt are useful when you want to compare the underlying
+algorithms.
 
-`inline` controls how replaced lines are highlighted: `"chars"` highlights
-character-level edits, `"words"` highlights word/punctuation chunks, and
-`"none"` keeps only the changed-row background.
+`inline` controls how replaced lines are highlighted: `"words"` highlights
+word/punctuation chunks, `"chars"` highlights character-level edits, and
+`"none"` keeps only the changed-row background. Word mode is the default.
 
 `unicode` controls inline tokenization quality and defaults to `true`. With
 `inline: "chars"`, Unicode mode diffs grapheme clusters instead of raw Unicode

@@ -1,6 +1,8 @@
 #import "@preview/elembic:1.1.1" as e
 #import "../lib.typ": default-colors, diffst
 
+#set raw(lang: "typst")
+
 #set page(
   width: 297mm,
   height: 210mm,

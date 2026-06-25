@@ -1,6 +1,6 @@
 #import "@preview/elembic:1.1.1" as e
 
-#let _engine = plugin("target/wasm32-unknown-unknown/release/diffst_wasm.wasm")
+#let _engine = plugin("plugin.wasm")
 
 #let default-colors = (
   text: rgb("#111827"),
@@ -542,6 +542,13 @@
   ]
 }
 
+#let _diff-columns = (
+  (title: [Old], side: "old", part: "line", align: right, header-align: center),
+  (title: [Content], side: "old", part: "content", align: left, header-align: left),
+  (title: [New], side: "new", part: "line", align: right, header-align: center),
+  (title: [Content], side: "new", part: "content", align: left, header-align: left),
+)
+
 #let _row-part(colors, row, side, part) = {
   if side == "old" and part == "line" {
     _line-no(colors, row.at("old_no", default: none))
@@ -566,30 +573,35 @@
   columns: table-style.columns,
   stroke: none,
   inset: 0pt,
-  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "old", "line"), align: right),
-  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "old", "content")),
-  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "new", "line"), align: right),
-  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "new", "content")),
+  .._diff-columns.map(col => _sync-cell(
+    colors,
+    _row-fill(colors, row.kind),
+    _row-part(colors, row, col.side, col.part),
+    align: col.align,
+  )),
 )
 
 #let _header-prototype(colors, table-style) = table(
   columns: table-style.columns,
   stroke: none,
   inset: 0pt,
-  _sync-cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center),
-  _sync-cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
-  _sync-cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center),
-  _sync-cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
+  .._diff-columns.map(col => _sync-cell(
+    colors,
+    _color(colors, "header"),
+    _strong(col.title, size: _line-size),
+    align: col.header-align,
+  )),
 )
 
 #let _single-row-cells(colors, table-style, row) = {
   let fill = _row-fill(colors, row.kind)
-  (
-    _cell(colors, fill, _row-part(colors, row, "old", "line"), align: right, stroke: _cell-stroke(colors, table-style, 0)),
-    _cell(colors, fill, _row-part(colors, row, "old", "content"), stroke: _cell-stroke(colors, table-style, 1)),
-    _cell(colors, fill, _row-part(colors, row, "new", "line"), align: right, stroke: _cell-stroke(colors, table-style, 2)),
-    _cell(colors, fill, _row-part(colors, row, "new", "content"), stroke: _cell-stroke(colors, table-style, 3)),
-  )
+  _diff-columns.enumerate().map(((column, col)) => _cell(
+    colors,
+    fill,
+    _row-part(colors, row, col.side, col.part),
+    align: col.align,
+    stroke: _cell-stroke(colors, table-style, column),
+  ))
 }
 
 #let _single-table(colors, rows, report: none, table-style: default-table-style) = {
@@ -600,10 +612,13 @@
     inset: 0pt,
     table.header(
       repeat: true,
-      _cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 0, header: true)),
-      _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 1, header: true)),
-      _cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 2, header: true)),
-      _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 3, header: true)),
+      .._diff-columns.enumerate().map(((column, col)) => _cell(
+        colors,
+        _color(colors, "header"),
+        _strong(col.title, size: _line-size),
+        align: col.header-align,
+        stroke: _cell-stroke(colors, table-style, column, header: true),
+      )),
     ),
     ..rows.map(row => {
       if row.kind == "collapsed" {
@@ -662,10 +677,18 @@
   grid(
     columns: table-style.columns,
     gutter: 0pt,
-    _split-column-table(colors, table-style, rows, [Old], "old", "line", 0, heights, header: header, top-row-border: top-row-border),
-    _split-column-table(colors, table-style, rows, [Content], "old", "content", 1, heights, header: header, top-row-border: top-row-border),
-    _split-column-table(colors, table-style, rows, [New], "new", "line", 2, heights, header: header, top-row-border: top-row-border),
-    _split-column-table(colors, table-style, rows, [Content], "new", "content", 3, heights, header: header, top-row-border: top-row-border),
+    .._diff-columns.enumerate().map(((column, col)) => _split-column-table(
+      colors,
+      table-style,
+      rows,
+      col.title,
+      col.side,
+      col.part,
+      column,
+      heights,
+      header: header,
+      top-row-border: top-row-border,
+    )),
   )
 })
 
@@ -763,10 +786,10 @@
   new,
   ignore-whitespace: false,
   show-whitespace: false,
-  algorithm: "myers",
-  inline: "chars",
+  algorithm: "histogram",
+  inline: "words",
   unicode: true,
-  semantic-cleanup: false,
+  semantic-cleanup: true,
 ) = {
   let old-content = read(old)
   let new-content = read(new)
@@ -1059,6 +1082,21 @@
   }
 }
 
+#let _table-rows(report, rows, display, collapse-threshold, context-lines, range, range-side) = {
+  if rows != auto {
+    rows
+  } else {
+    diffst-rows(
+      report,
+      display: display,
+      collapse-threshold: collapse-threshold,
+      context-lines: context-lines,
+      range: range,
+      range-side: range-side,
+    )
+  }
+}
+
 #let diffst-table(
   report,
   rows: auto,
@@ -1071,18 +1109,7 @@
   table-style: default-table-style,
 ) = {
   let colors = default-colors + colors
-  let rows = if rows == auto {
-    diffst-rows(
-      report,
-      display: display,
-      collapse-threshold: collapse-threshold,
-      context-lines: context-lines,
-      range: range,
-      range-side: range-side,
-    )
-  } else {
-    rows
-  }
+  let rows = _table-rows(report, rows, display, collapse-threshold, context-lines, range, range-side)
   _diff-table(colors, rows, report: report, table-style: table-style)
 }
 
@@ -1098,18 +1125,7 @@
   table-style: default-table-style,
 ) = {
   let colors = default-colors + colors
-  let rows = if rows == auto {
-    diffst-rows(
-      report,
-      display: display,
-      collapse-threshold: collapse-threshold,
-      context-lines: context-lines,
-      range: range,
-      range-side: range-side,
-    )
-  } else {
-    rows
-  }
+  let rows = _table-rows(report, rows, display, collapse-threshold, context-lines, range, range-side)
   _single-table(colors, rows, report: report, table-style: table-style)
 }
 
@@ -1179,7 +1195,7 @@
   )
 }
 
-#let diffst = e.element.declare(
+#let _diffst-element = e.element.declare(
   "diffst",
   prefix: "diffst,v1",
   doc: "Renders a side-by-side diff report for two text files.",
@@ -1189,10 +1205,10 @@
     e.field("new", str, doc: "Path to the new file.", required: true),
     e.field("ignore-whitespace", bool, doc: "Ignore whitespace while diffing lines.", default: false),
     e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly, and mark trailing whitespace on unchanged lines.", default: false),
-    e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "myers"),
-    e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "chars"),
+    e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "histogram"),
+    e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "words"),
     e.field("unicode", bool, doc: "Use Unicode-aware inline tokenization for graphemes and word boundaries.", default: true),
-    e.field("semantic-cleanup", bool, doc: "Run similar's semantic cleanup pass on inline highlights.", default: false),
+    e.field("semantic-cleanup", bool, doc: "Run similar's semantic cleanup pass on inline highlights.", default: true),
     e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),
@@ -1201,6 +1217,74 @@
     e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),
   ),
 )
+
+#let diffst(
+  old: none,
+  new: none,
+  ignore-whitespace: false,
+  show-whitespace: false,
+  algorithm: "histogram",
+  inline: "words",
+  unicode: true,
+  semantic-cleanup: true,
+  display: "collapsed",
+  collapse-threshold: 14,
+  context-lines: 3,
+  table-style: default-table-style,
+  table-layout: "split",
+  colors: (:),
+  ..args,
+  __elembic_data: none,
+  __elembic_mode: auto,
+  __elembic_settings: (:),
+  __elembic_outer_label: false,
+) = {
+  if __elembic_data != none {
+    return _diffst-element(
+      ..args,
+      __elembic_data: __elembic_data,
+      __elembic_mode: __elembic_mode,
+      __elembic_settings: __elembic_settings,
+      __elembic_outer_label: __elembic_outer_label,
+    )
+  }
+
+  let positional = args.pos()
+  if old == none and positional.len() > 0 {
+    old = positional.first()
+    positional = positional.slice(1)
+  }
+  if new == none and positional.len() > 0 {
+    new = positional.first()
+    positional = positional.slice(1)
+  }
+
+  assert(positional.len() == 0, message: "diffst: expected at most two positional arguments: old and new")
+  assert(old != none, message: "diffst: missing required argument: old")
+  assert(new != none, message: "diffst: missing required argument: new")
+
+  _diffst-element(
+    old,
+    new,
+    ignore-whitespace: ignore-whitespace,
+    show-whitespace: show-whitespace,
+    algorithm: algorithm,
+    inline: inline,
+    unicode: unicode,
+    semantic-cleanup: semantic-cleanup,
+    display: display,
+    collapse-threshold: collapse-threshold,
+    context-lines: context-lines,
+    table-style: table-style,
+    table-layout: table-layout,
+    colors: colors,
+    ..args.named(),
+    __elembic_data: __elembic_data,
+    __elembic_mode: __elembic_mode,
+    __elembic_settings: __elembic_settings,
+    __elembic_outer_label: __elembic_outer_label,
+  )
+}
 
 #let minimal-table(body) = {
   show: e.set_(diffst, colors: minimal-colors, table-style: minimal-table-style)
