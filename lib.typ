@@ -511,46 +511,251 @@
   }
 }
 
-#let _diff-table(colors, rows, report: none, table-style: default-table-style) = {
+#let _split-rule(colors, table-style, column, header: false, top: false) = {
+  if table-style.rules == "minimal" {
+    _minimal-cell-stroke(colors, table-style, column, header: header)
+  } else if table-style.rules == "default" {
+    let width = if header { table-style.stroke-width.header } else { table-style.stroke-width.body }
+    let rule = width + _color(colors, "border")
+    (
+      left: if column == 0 { rule } else { none },
+      right: rule,
+      top: if header or top { rule } else { none },
+      bottom: rule,
+    )
+  } else {
+    panic("table-style.rules must be \"default\" or \"minimal\"")
+  }
+}
+
+#let _sync-cell(colors, fill, body, height: auto, align: left, stroke: auto) = {
+  let args = if stroke == auto { (:) } else { (stroke: stroke) }
+  table.cell(
+    fill: fill,
+    inset: 0pt,
+    align: align,
+    ..args,
+  )[
+    #box(height: height)[
+      #pad(x: 4.5pt, y: 3pt)[#body]
+    ]
+  ]
+}
+
+#let _row-part(colors, row, side, part) = {
+  if side == "old" and part == "line" {
+    _line-no(colors, row.at("old_no", default: none))
+  } else if side == "new" and part == "line" {
+    _line-no(colors, row.at("new_no", default: none))
+  } else if side == "old" {
+    _code(
+      colors,
+      row.at("old", default: none),
+      spans: row.at("old_spans", default: none),
+    )
+  } else {
+    _code(
+      colors,
+      row.at("new", default: none),
+      spans: row.at("new_spans", default: none),
+    )
+  }
+}
+
+#let _row-prototype(colors, table-style, row) = table(
+  columns: table-style.columns,
+  stroke: none,
+  inset: 0pt,
+  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "old", "line"), align: right),
+  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "old", "content")),
+  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "new", "line"), align: right),
+  _sync-cell(colors, _row-fill(colors, row.kind), _row-part(colors, row, "new", "content")),
+)
+
+#let _header-prototype(colors, table-style) = table(
+  columns: table-style.columns,
+  stroke: none,
+  inset: 0pt,
+  _sync-cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center),
+  _sync-cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
+  _sync-cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center),
+  _sync-cell(colors, _color(colors, "header"), _strong([Content], size: _line-size)),
+)
+
+#let _single-row-cells(colors, table-style, row) = {
+  let fill = _row-fill(colors, row.kind)
+  (
+    _cell(colors, fill, _row-part(colors, row, "old", "line"), align: right, stroke: _cell-stroke(colors, table-style, 0)),
+    _cell(colors, fill, _row-part(colors, row, "old", "content"), stroke: _cell-stroke(colors, table-style, 1)),
+    _cell(colors, fill, _row-part(colors, row, "new", "line"), align: right, stroke: _cell-stroke(colors, table-style, 2)),
+    _cell(colors, fill, _row-part(colors, row, "new", "content"), stroke: _cell-stroke(colors, table-style, 3)),
+  )
+}
+
+#let _single-table(colors, rows, report: none, table-style: default-table-style) = {
   let table-style = _resolve-table-style(table-style)
   table(
-  columns: table-style.columns,
-  stroke: _table-stroke(colors, table-style),
-  inset: 0pt,
-  table.header(
-    repeat: true,
-    _cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 0, header: true)),
-    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 1, header: true)),
-    _cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 2, header: true)),
-    _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 3, header: true)),
-  ),
-  ..rows.map(row => {
-    if row.kind == "collapsed" {
+    columns: table-style.columns,
+    stroke: _table-stroke(colors, table-style),
+    inset: 0pt,
+    table.header(
+      repeat: true,
+      _cell(colors, _color(colors, "header"), _strong([Old], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 0, header: true)),
+      _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 1, header: true)),
+      _cell(colors, _color(colors, "header"), _strong([New], size: _line-size), align: center, stroke: _cell-stroke(colors, table-style, 2, header: true)),
+      _cell(colors, _color(colors, "header"), _strong([Content], size: _line-size), stroke: _cell-stroke(colors, table-style, 3, header: true)),
+    ),
+    ..rows.map(row => {
+      if row.kind == "collapsed" {
+        (
+          table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
+            #_muted(colors, [#row.hidden unchanged lines hidden], size: _line-size)
+          ],
+        )
+      } else {
+        _single-row-cells(colors, table-style, row)
+      }
+    }).flatten(),
+    .._trailing-newline-rows(colors, report),
+  )
+}
+
+#let _split-column-table(colors, table-style, rows, title, side, part, column, heights, header: false, top-row-border: false) = block(width: 100%)[
+  #table(
+    columns: (100%,),
+    stroke: none,
+    inset: 0pt,
+    ..if header {
       (
-        table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
-          #_muted(colors, [#row.hidden unchanged lines hidden], size: _line-size)
-        ],
+        table.header(
+          repeat: true,
+          _sync-cell(
+            colors,
+            _color(colors, "header"),
+            _strong(title, size: _line-size),
+            height: heights.header,
+            align: if part == "line" { center } else { left },
+            stroke: _split-rule(colors, table-style, column, header: true),
+          ),
+        ),
       )
     } else {
-      let fill = _row-fill(colors, row.kind)
-      (
-        _cell(colors, fill, _line-no(colors, row.at("old_no", default: none)), align: right, stroke: _cell-stroke(colors, table-style, 0)),
-        _cell(colors, fill, _code(
-          colors,
-          row.at("old", default: none),
-          spans: row.at("old_spans", default: none),
-        ), stroke: _cell-stroke(colors, table-style, 1)),
-        _cell(colors, fill, _line-no(colors, row.at("new_no", default: none)), align: right, stroke: _cell-stroke(colors, table-style, 2)),
-        _cell(colors, fill, _code(
-          colors,
-          row.at("new", default: none),
-          spans: row.at("new_spans", default: none),
-        ), stroke: _cell-stroke(colors, table-style, 3)),
-      )
-    }
-  }).flatten(),
-  .._trailing-newline-rows(colors, report),
+      ()
+    },
+    ..rows.enumerate().map(((index, row)) => _sync-cell(
+      colors,
+      _row-fill(colors, row.kind),
+      _row-part(colors, row, side, part),
+      height: heights.rows.at(index),
+      align: if part == "line" { right } else { left },
+      stroke: _split-rule(colors, table-style, column, top: top-row-border and index == 0),
+    )),
   )
+]
+
+#let _split-normal-table(colors, table-style, rows, header: false, top-row-border: false) = layout(size => {
+  let heights = (
+    header: measure(_header-prototype(colors, table-style), width: size.width).height,
+    rows: rows.map(row => measure(_row-prototype(colors, table-style, row), width: size.width).height),
+  )
+
+  grid(
+    columns: table-style.columns,
+    gutter: 0pt,
+    _split-column-table(colors, table-style, rows, [Old], "old", "line", 0, heights, header: header, top-row-border: top-row-border),
+    _split-column-table(colors, table-style, rows, [Content], "old", "content", 1, heights, header: header, top-row-border: top-row-border),
+    _split-column-table(colors, table-style, rows, [New], "new", "line", 2, heights, header: header, top-row-border: top-row-border),
+    _split-column-table(colors, table-style, rows, [Content], "new", "content", 3, heights, header: header, top-row-border: top-row-border),
+  )
+})
+
+#let _full-width-rule(colors, table-style) = {
+  if table-style.rules == "default" {
+    let rule = table-style.stroke-width.body + _color(colors, "border")
+    (left: rule, right: rule, top: rule, bottom: rule)
+  } else if table-style.rules == "minimal" {
+    none
+  } else {
+    panic("table-style.rules must be \"default\" or \"minimal\"")
+  }
+}
+
+#let _full-width-note-row(colors, table-style, body) = table(
+  columns: table-style.columns,
+  stroke: none,
+  inset: 0pt,
+  table.cell(
+    colspan: 4,
+    fill: _color(colors, "collapsed"),
+    stroke: _full-width-rule(colors, table-style),
+    inset: (x: 4pt, y: 3pt),
+    align: center,
+  )[
+    #_muted(colors, body, size: _line-size)
+  ],
+)
+
+#let _collapsed-row(colors, table-style, row) = {
+  _full-width-note-row(colors, table-style, [#row.hidden unchanged lines hidden])
+}
+
+#let _trailing-newline-block(colors, table-style, report) = {
+  let rows = _trailing-newline-rows(colors, report)
+  if rows.len() == 0 {
+    none
+  } else {
+    let row = rows.first()
+    table(
+      columns: table-style.columns,
+      stroke: _table-stroke(colors, table-style),
+      inset: 0pt,
+      row,
+    )
+  }
+}
+
+#let _diff-table(colors, rows, report: none, table-style: default-table-style) = {
+  let table-style = _resolve-table-style(table-style)
+  let chunks = ()
+  let current = ()
+
+  for row in rows {
+    if row.kind == "collapsed" {
+      if current.len() > 0 {
+        chunks.push((kind: "normal", rows: current))
+        current = ()
+      }
+      chunks.push((kind: "collapsed", row: row))
+    } else {
+      current.push(row)
+    }
+  }
+  if current.len() > 0 {
+    chunks.push((kind: "normal", rows: current))
+  }
+
+  stack(spacing: 0pt)[
+    #let header = true
+    #let after-note = false
+    #for chunk in chunks {
+      if chunk.kind == "normal" {
+        block(above: 0pt, below: 0pt)[
+          #_split-normal-table(colors, table-style, chunk.rows, header: header, top-row-border: after-note)
+        ]
+        header = false
+        after-note = false
+      } else {
+        block(above: 0pt, below: 0pt)[
+          #_collapsed-row(colors, table-style, chunk.row)
+        ]
+        after-note = true
+      }
+    }
+    #let trailing = _trailing-newline-block(colors, table-style, report)
+    #if trailing != none {
+      block(above: 0pt, below: 0pt)[#trailing]
+    }
+  ]
 }
 
 #let diffst-report(
@@ -585,11 +790,51 @@
   )
 }
 
+#let _line-in-range(value, start, end) = {
+  value != none and value >= start and value <= end
+}
+
+#let _row-in-range(row, start, end, side) = {
+  let old-hit = _line-in-range(row.at("old_no", default: none), start, end)
+  let new-hit = _line-in-range(row.at("new_no", default: none), start, end)
+  if side == "old" {
+    old-hit
+  } else if side == "new" {
+    new-hit
+  } else if side == "both" {
+    old-hit or new-hit
+  } else {
+    panic("range-side must be \"both\", \"old\", or \"new\"")
+  }
+}
+
+#let _range-rows(rows, range, side) = {
+  if range == auto {
+    rows
+  } else {
+    if range.len() != 2 {
+      panic("range must be (start, end)")
+    }
+    let start = range.first()
+    let end = range.last()
+    if start < 1 {
+      panic("range start must be greater than or equal to 1")
+    }
+    if end < start {
+      panic("range end must be greater than or equal to range start")
+    }
+
+    rows.filter(row => _row-in-range(row, start, end, side))
+  }
+}
+
 #let diffst-rows(
   report,
   display: "collapsed",
   collapse-threshold: 14,
   context-lines: 3,
+  range: auto,
+  range-side: "both",
 ) = {
   if context-lines < 0 {
     panic("context-lines must be greater than or equal to 0")
@@ -598,10 +843,11 @@
     panic("collapse-threshold must be greater than or equal to 0")
   }
 
+  let rows = _range-rows(report.rows, range, range-side)
   if display == "full" {
-    report.rows
+    rows
   } else if display == "collapsed" {
-    _with-collapse(report.rows, collapse-threshold, context-lines)
+    _with-collapse(rows, collapse-threshold, context-lines)
   } else {
     panic("display must be \"full\" or \"collapsed\"")
   }
@@ -813,10 +1059,68 @@
   }
 }
 
-#let diffst-table(report, rows: auto, colors: (:), table-style: default-table-style) = {
+#let diffst-table(
+  report,
+  rows: auto,
+  colors: (:),
+  display: "full",
+  collapse-threshold: 14,
+  context-lines: 3,
+  range: auto,
+  range-side: "both",
+  table-style: default-table-style,
+) = {
   let colors = default-colors + colors
-  let rows = if rows == auto { report.rows } else { rows }
+  let rows = if rows == auto {
+    diffst-rows(
+      report,
+      display: display,
+      collapse-threshold: collapse-threshold,
+      context-lines: context-lines,
+      range: range,
+      range-side: range-side,
+    )
+  } else {
+    rows
+  }
   _diff-table(colors, rows, report: report, table-style: table-style)
+}
+
+#let diffst-single-table(
+  report,
+  rows: auto,
+  colors: (:),
+  display: "full",
+  collapse-threshold: 14,
+  context-lines: 3,
+  range: auto,
+  range-side: "both",
+  table-style: default-table-style,
+) = {
+  let colors = default-colors + colors
+  let rows = if rows == auto {
+    diffst-rows(
+      report,
+      display: display,
+      collapse-threshold: collapse-threshold,
+      context-lines: context-lines,
+      range: range,
+      range-side: range-side,
+    )
+  } else {
+    rows
+  }
+  _single-table(colors, rows, report: report, table-style: table-style)
+}
+
+#let _render-table(colors, report, rows, table-style, table-layout) = {
+  if table-layout == "split" {
+    _diff-table(colors, rows, report: report, table-style: table-style)
+  } else if table-layout == "single" {
+    _single-table(colors, rows, report: report, table-style: table-style)
+  } else {
+    panic("table-layout must be \"split\" or \"single\"")
+  }
 }
 
 #let diffst-layout(
@@ -825,7 +1129,10 @@
   display: "collapsed",
   collapse-threshold: 14,
   context-lines: 3,
+  range: auto,
+  range-side: "both",
   table-style: default-table-style,
+  table-layout: "split",
   body: auto,
 ) = {
   let colors = default-colors + colors
@@ -834,13 +1141,15 @@
     display: display,
     collapse-threshold: collapse-threshold,
     context-lines: context-lines,
+    range: range,
+    range-side: range-side,
   )
 
   if body == auto {
     block(width: 100%)[
       #_summary(colors, report)
       #v(6pt)
-      #_diff-table(colors, rows, report: report, table-style: table-style)
+      #_render-table(colors, report, rows, table-style, table-layout)
     ]
   } else {
     body(report, rows, colors)
@@ -866,6 +1175,7 @@
     collapse-threshold: it.at("collapse-threshold"),
     context-lines: it.at("context-lines"),
     table-style: it.at("table-style"),
+    table-layout: it.at("table-layout"),
   )
 }
 
@@ -887,6 +1197,7 @@
     e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
     e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),
     e.field("table-style", e.types.any, doc: "Table style dictionary, or \"default\"/\"minimal\".", default: default-table-style),
+    e.field("table-layout", str, doc: "Table renderer: \"split\" for synchronized selectable columns, or \"single\" for one Typst table.", default: "split"),
     e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),
   ),
 )

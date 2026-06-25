@@ -3,6 +3,7 @@
   diffst-debug-raw,
   diffst-report,
   diffst-rows,
+  diffst-single-table,
   diffst-table,
 )
 
@@ -48,3 +49,7 @@
 #v(8pt)
 
 #diffst-table(report, rows: rows)
+
+#v(8pt)
+
+#diffst-single-table(report, rows: rows)

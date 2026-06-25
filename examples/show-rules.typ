@@ -1,5 +1,5 @@
 #import "@preview/elembic:1.1.1" as e
-#import "../lib.typ": diffst, default-colors
+#import "../lib.typ": default-colors, diffst
 
 #set page(
   width: 297mm,
@@ -9,21 +9,24 @@
 )
 #set text(font: ("Avenir Next", "Atkinson Hyperlegible"), size: 9pt, fill: rgb("#10131f"))
 
-#let review-colors = default-colors + (
-  text: rgb("#10131f"),
-  line-no: rgb("#545b72"),
-  border: rgb("#252a44"),
-  header: rgb("#151a2e"),
-  equal: rgb("#fcfbf7"),
-  delete: rgb("#ffd6df"),
-  insert: rgb("#c9f7da"),
-  replace: rgb("#ffe08a"),
-  inline-delete: rgb("#ff5f7e"),
-  inline-insert: rgb("#32d177"),
-  delete-text: rgb("#7a1025"),
-  insert-text: rgb("#083f20"),
-  replace-text: rgb("#5f3900"),
-  collapsed: rgb("#eceff6"),
+#let review-colors = (
+  default-colors
+    + (
+      text: rgb("#10131f"),
+      line-no: rgb("#545b72"),
+      border: rgb("#252a44"),
+      header: rgb("#151a2e"),
+      equal: rgb("#fcfbf7"),
+      delete: rgb("#ffd6df"),
+      insert: rgb("#c9f7da"),
+      replace: rgb("#ffe08a"),
+      inline-delete: rgb("#ff5f7e"),
+      inline-insert: rgb("#32d177"),
+      delete-text: rgb("#7a1025"),
+      insert-text: rgb("#083f20"),
+      replace-text: rgb("#5f3900"),
+      collapsed: rgb("#eceff6"),
+    )
 )
 
 #show: e.set_(diffst, colors: review-colors)
@@ -46,12 +49,7 @@
 )[#it]
 #show block: set block(spacing: 0.9em)
 #show table: set text(size: 6.4pt)
-#show table: it => block(
-  fill: rgb("#fff8df"),
-  stroke: 1.2pt + rgb("#252a44"),
-  inset: 4pt,
-  radius: 4pt,
-)[#it]
+#show table: set table(stroke: 1.2pt + rgb("#252a44"))
 #show table.header: set table.header(repeat: true)
 #show table.cell.where(x: 0): set text(fill: rgb("#334155"), weight: "bold")
 #show table.cell.where(x: 2): set text(fill: rgb("#334155"), weight: "bold")
@@ -70,7 +68,8 @@
 #diffst(
   "examples/paper-old.typ",
   "examples/paper-new.typ",
-  display: "full",
+  display: "collapsed",
+  collapse-threshold: 2,
   inline: "words",
   show-whitespace: true,
 )
