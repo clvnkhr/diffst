@@ -1,5 +1,4 @@
-#import "@preview/elembic:1.1.1" as e
-#import "../lib.typ": default-colors, diffst
+#import "../lib.typ": default-colors, diffst, diffst-style
 
 #set raw(lang: "typst")
 
@@ -31,7 +30,7 @@
     )
 )
 
-#show: e.set_(diffst, colors: review-colors)
+#show: diffst-style.with(colors: review-colors)
 #show heading: it => block(
   below: 0.9em,
   stroke: (bottom: 1.4pt + rgb("#151a2e")),

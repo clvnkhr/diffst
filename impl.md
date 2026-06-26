@@ -3,7 +3,8 @@
 This package has two halves:
 
 - `src/lib.rs` is the Rust/WASM diff engine.
-- `lib.typ` is the Typst API and renderer.
+- `lib.typ` is the Typst API and renderer, with small internal modules in
+  `typst/`.
 
 The boundary between them is JSON. Typst reads the old and new files, sends
 their bytes plus encoded options into the WASM plugin, receives a structured
@@ -11,10 +12,10 @@ report, and turns that report into Typst content.
 
 ## Build artifact
 
-Typst loads the plugin from `plugin.wasm`:
+The internal report module loads the plugin from `plugin.wasm`:
 
 ```typst
-#let _engine = plugin("plugin.wasm")
+#let _engine = plugin("../plugin.wasm")
 ```
 
 During development, `scripts/smoke.sh` runs the Rust tests, builds
@@ -24,25 +25,29 @@ on `plugin.wasm`; `target/...` is just the local Rust build output.
 
 ## Public Typst layers
 
-The top-level `#diffst(..)` call is an Elembic element with an explicit wrapper
-function. The wrapper exists so Typst/LSP can see the named parameters while
-Elembic still gets the hidden data it needs for show rules.
+The top-level `#diffst(..)` call is a small file convenience wrapper. It reads
+the two paths, then calls `diffst-content(..)`, which creates the Elembic
+element. The explicit wrappers exist so Typst/LSP can see the named parameters
+while Elembic still gets the hidden data it needs for show rules.
 
 The normal flow is:
 
-1. `diffst(..)` creates the Elembic element.
-2. Elembic calls `_display`.
-3. `_display` calls `diffst-report(..)`.
-4. `diffst-report(..)` gets the old/new text from `old-content` /
-   `new-content`, or reads `old` / `new` as paths when content is omitted, and
-   calls `_engine.diff(..)`.
-5. `_display` passes the report to `diffst-layout(..)`.
-6. `diffst-layout(..)` computes visible rows and renders the summary plus a
+1. `diffst(old-path, new-path, ..)` reads the files.
+2. `diffst-content(old-text, new-text, ..)` creates the Elembic element.
+3. Elembic calls `_display`.
+4. `_display` calls `diffst-report(..)`.
+5. `diffst-report(..)` in `typst/report.typ` sends the old/new text to
+   `_engine.diff(..)`.
+6. `_display` passes the report to `diffst-layout(..)`.
+7. `diffst-layout(..)` computes visible rows and renders the summary plus a
    table.
 
 The composable public helpers sit at different levels:
 
-- `diffst-report(old, new, ..)` returns data only.
+- `diffst(old-path, new-path, ..)` reads files and renders the default report.
+- `diffst-content(old-text, new-text, ..)` renders the default report from
+  already-read strings.
+- `diffst-report(old-text, new-text, ..)` returns data only.
 - `diffst-rows(report, ..)` applies range filtering and collapsed/full display.
 - `diffst-table(report, ..)` renders the split-table view.
 - `diffst-single-table(report, ..)` renders one Typst `table`.
@@ -50,14 +55,10 @@ The composable public helpers sit at different levels:
 - `diffst-layout(report, ..)` renders the default summary plus table, or calls
   `body(report, rows, colors)` for custom final layout.
 - `diffst-hunks(report, ..)` groups raw operations into hunk dictionaries.
-- `*-raw` helpers return numbers/dictionaries instead of rendered content.
 
-When the package is imported through `@preview/diffst:0.1.0`, path reads inside
-`lib.typ` resolve relative to the package. For package use, callers should read
-their files at the call site and pass `old-content` and `new-content`. The
-`old` and `new` arguments remain report labels. When those content fields are
-omitted, `diffst-report` falls back to reading `old` and `new` directly, which
-keeps the source-tree examples convenient.
+`diffst` is intentionally the only public layer that reads paths. The lower
+layers accept strings and separate labels, so callers can use already-read
+content without pretending it is a file path.
 
 ## Rust report shape
 
@@ -91,8 +92,9 @@ whitespace markers.
 
 ## Rust diff pipeline
 
-`diff(old, new, options)` is the WASM entrypoint. It wraps `diff_impl` and
-returns either report JSON or `{ "error": "..." }`.
+`diff(old, new, options)` is the WASM entrypoint. It returns
+`Result<Vec<u8>, String>`, so `wasm-minimal-protocol` carries failures through
+the plugin protocol while successful calls return report JSON.
 
 `diff_impl` does the real work:
 

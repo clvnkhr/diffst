@@ -1,5 +1,4 @@
-#import "@preview/elembic:1.1.1" as e
-#import "../lib.typ": diffst, default-colors
+#import "../lib.typ": diffst, diffst-style, default-colors
 
 #set page(width: 297mm, height: 210mm, margin: 12mm)
 #set text(font: "New Computer Modern", size: 9pt)
@@ -15,7 +14,7 @@
   replace-text: rgb("#075985"),
 )
 
-#show: e.set_(diffst, colors: ocean-colors)
+#show: diffst-style.with(colors: ocean-colors)
 
 = custom diffst colors
 
@@ -38,4 +37,3 @@
     inline-insert: rgb("#67e8f9"),
   ),
 )
-

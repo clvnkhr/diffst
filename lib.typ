@@ -1,76 +1,66 @@
 #import "@preview/elembic:1.1.1" as e
+#import "typst/style.typ" as style
+#import "typst/report.typ" as report
+#import "typst/data.typ" as data
 
-#let _engine = plugin("plugin.wasm")
+/// Default color dictionary for diff reports.
+///
+/// Merge with this dictionary when overriding report colors.
+#let default-colors = style.default-colors
 
-#let default-colors = (
-  text: rgb("#111827"),
-  line-no: rgb("#6b7280"),
-  border: rgb("#cfd7e3"),
-  header: rgb("#e8edf5"),
-  equal: white,
-  delete: rgb("#ffe3e6"),
-  insert: rgb("#dcf7e4"),
-  replace: rgb("#fff1bf"),
-  inline-delete: rgb("#ff9aa5"),
-  inline-insert: rgb("#83dea1"),
-  inline-equal: none,
-  delete-text: rgb("#7f1d1d"),
-  insert-text: rgb("#14532d"),
-  replace-text: rgb("#713f12"),
-  marker: rgb("#2563eb"),
-  collapsed: rgb("#f7f8fb"),
-)
+/// Muted color dictionary intended for print-oriented reports.
+#let minimal-colors = style.minimal-colors
 
-#let minimal-colors = (
-  text: black,
-  line-no: luma(45%),
-  border: black,
-  header: white,
-  equal: white,
-  delete: luma(98%),
-  insert: luma(99%),
-  replace: luma(97%),
-  inline-delete: rgb("#f2b6bf"),
-  inline-insert: rgb("#a8d5b3"),
-  inline-equal: none,
-  delete-text: black,
-  insert-text: black,
-  replace-text: black,
-  marker: rgb("#2563eb"),
-  collapsed: white,
-)
+/// Default table style dictionary.
+///
+/// Controls column widths, rule style, and stroke widths.
+#let default-table-style = style.default-table-style
 
-#let default-table-style = (
-  columns: (2.4em, 1fr, 2.4em, 1fr),
-  rules: "default",
-  stroke-width: (
-    header: 0.8pt,
-    body: 0.45pt,
-  ),
-)
+/// Minimal table style dictionary.
+///
+/// Keeps only the middle separator and the rule below the header.
+#let minimal-table-style = style.minimal-table-style
 
-#let minimal-table-style = default-table-style + (
-  rules: "minimal",
-  stroke-width: 0.6pt,
-)
+/// Build a structured diff report from two text strings.
+///
+/// Use this when composing your own report layout. The returned dictionary
+/// contains `old`, `new`, `meta`, `stats`, `ops`, and `rows`.
+///
+/// - `old`: Old text content.
+/// - `new`: New text content.
+/// - `old-label`: Label stored as `report.old`.
+/// - `new-label`: Label stored as `report.new`.
+/// - `algorithm`: `"histogram"`, `"myers"`, `"patience"`, `"lcs"`, or `"hunt"`.
+/// - `inline`: `"words"`, `"chars"`, or `"none"`.
+#let diffst-report = report.diffst-report
+
+/// Compute renderable rows from a report.
+///
+/// Applies optional line range filtering and either `"collapsed"` or `"full"`
+/// display handling.
+///
+/// - `range`: `auto` or `(start, end)`, using inclusive 1-based line numbers.
+/// - `range-side`: `"both"`, `"old"`, or `"new"`.
+#let diffst-rows = data.diffst-rows
+
+/// Group report operations into hunks.
+///
+/// Returns dictionaries with `ops`, `rows`, `old_start`, `old_len`,
+/// `new_start`, `new_len`, and context metadata.
+#let diffst-hunks = data.diffst-hunks
 
 #let _color(colors, key) = colors.at(key, default: default-colors.at(key))
-#let _line-size = 6.5pt
-#let _code-size = 6.8pt
-#let _label-size = 8.5pt
-#let _pill-size = 7pt
-
-#let _mono(body, fill: auto, size: _code-size) = {
+#let _mono(body, fill: auto) = {
   let args = if fill == auto { (:) } else { (fill: fill) }
-  text(size: size, ..args)[#raw(str(body), block: false)]
+  text(..args)[#raw(str(body), block: false)]
 }
 
-#let _muted(colors, body, size: _code-size) = {
-  text(size: size, fill: _color(colors, "line-no"))[#body]
+#let _muted(colors, body) = {
+  text(fill: _color(colors, "line-no"))[#body]
 }
 
-#let _strong(body, size: _label-size) = {
-  text(size: size, weight: "bold")[#body]
+#let _strong(body) = {
+  text(weight: "bold")[#body]
 }
 
 #let _cell(colors, fill, body, align: left, stroke: auto) = {
@@ -85,9 +75,9 @@
 
 #let _line-no(colors, value) = {
   if value == none {
-    _muted(colors, "", size: _line-size)
+    _muted(colors, "")
   } else {
-    _mono(str(value), fill: _color(colors, "line-no"), size: _line-size)
+    _mono(str(value), fill: _color(colors, "line-no"))
   }
 }
 
@@ -148,7 +138,7 @@
 #let _marker-span(colors, markers, background: none) = {
   let fill = _color(colors, "marker")
   context {
-    let column-width = measure(text(size: _code-size)[#raw(" ", block: false)]).width
+    let column-width = measure(raw(" ", block: false)).width
     for marker in markers.clusters() {
       let shape-width = if marker == "·" { 1.5pt } else if marker == "→" { 3.8pt } else if marker == "␍" { 5pt } else { 6pt }
       let shape-height = if marker == "·" { 1.5pt } else if marker == "→" { 3pt } else { 5pt }
@@ -217,52 +207,11 @@
   }
 }
 
-#let diffst-pill(fill, fg, body) = box(
+#let _pill(fill, fg, body) = box(
   fill: fill,
   inset: (x: 5pt, y: 2pt),
   radius: 2pt,
-)[#text(size: _pill-size, fill: fg, weight: "bold")[#body]]
-
-#let _flush_equal_run(run, threshold, context-lines) = {
-  let keep = calc.max(0, context-lines)
-  if run.len() > threshold and run.len() > keep * 2 {
-    let keep = calc.min(keep, run.len())
-    let hidden = run.len() - keep * 2
-    run.slice(0, keep) + ((
-      kind: "collapsed",
-      hidden: hidden,
-    ),) + run.slice(run.len() - keep)
-  } else {
-    run
-  }
-}
-
-#let _with-collapse(rows, threshold, context-lines) = {
-  let output = ()
-  let equal-run = ()
-
-  for row in rows {
-    if row.kind == "equal" {
-      equal-run.push(row)
-    } else {
-      output += _flush_equal_run(equal-run, threshold, context-lines)
-      equal-run = ()
-      output.push(row)
-    }
-  }
-
-  output + _flush_equal_run(equal-run, threshold, context-lines)
-}
-
-#let diffst-labels-raw(report) = (
-  old: report.old,
-  new: report.new,
-)
-
-#let diffst-line-counts-raw(report) = (
-  old: report.stats.old_lines,
-  new: report.stats.new_lines,
-)
+)[#text(fill: fg, weight: "bold")[#body]]
 
 #let _stat-info(report, stat) = {
   if stat == "similarity" {
@@ -301,77 +250,12 @@
         label: value => str(value) + " changed blocks",
       ),
     )
-  } else if stat == "equal-lines" {
-    (value: report.stats.equal_lines, summary: none)
-  } else if stat == "old-lines" {
-    (value: report.stats.old_lines, summary: none)
-  } else if stat == "new-lines" {
-    (value: report.stats.new_lines, summary: none)
   } else {
-    panic("unknown raw stat: " + stat)
+    panic("unknown summary stat: " + stat)
   }
 }
 
-#let diffst-stat-raw(report, stat) = _stat-info(report, stat).value
-
-#let diffst-stats-raw(
-  report,
-  stats: ("similarity", "additions", "deletions", "changed-blocks"),
-) = {
-  stats.map(stat => (
-    key: stat,
-    value: diffst-stat-raw(report, stat),
-  ))
-}
-
-#let diffst-row-counts-raw(rows) = {
-  let equal = 0
-  let insert = 0
-  let delete = 0
-  let replace = 0
-  let collapsed = 0
-  let hidden = 0
-
-  for row in rows {
-    if row.kind == "equal" {
-      equal += 1
-    } else if row.kind == "insert" {
-      insert += 1
-    } else if row.kind == "delete" {
-      delete += 1
-    } else if row.kind == "replace" {
-      replace += 1
-    } else if row.kind == "collapsed" {
-      collapsed += 1
-      hidden += row.hidden
-    }
-  }
-
-  (
-    rows: rows.len(),
-    equal: equal,
-    insert: insert,
-    delete: delete,
-    replace: replace,
-    collapsed: collapsed,
-    hidden: hidden,
-  )
-}
-
-#let diffst-hunk-raw(hunk) = (
-  row-start: hunk.row_start,
-  row-end: hunk.row_end,
-  rows: hunk.rows.len(),
-  ops: hunk.ops.len(),
-  old-start: hunk.old_start,
-  old-len: hunk.old_len,
-  new-start: hunk.new_start,
-  new-len: hunk.new_len,
-  context-before: hunk.context_before,
-  context-after: hunk.context_after,
-)
-
-#let diffst-summary-label(report, colors: (:)) = {
+#let _summary-label(report, colors: (:)) = {
   let colors = default-colors + colors
   [
     #_strong(report.old)
@@ -382,39 +266,35 @@
   ]
 }
 
-#let diffst-summary-lines(report, colors: (:)) = {
+#let _summary-lines(report, colors: (:)) = {
   let colors = default-colors + colors
   _muted(colors, [
     #report.stats.old_lines old lines, #report.stats.new_lines new lines
   ])
 }
 
-#let diffst-summary-title(report, colors: (:)) = [
-  #diffst-summary-label(report, colors: colors)
+#let _summary-title(report, colors: (:)) = [
+  #_summary-label(report, colors: colors)
   #linebreak()
-  #diffst-summary-lines(report, colors: colors)
+  #_summary-lines(report, colors: colors)
 ]
 
-#let diffst-summary-stat(report, stat, colors: (:)) = {
+#let _summary-stat(report, stat, colors: (:)) = {
   let colors = default-colors + colors
   let info = _stat-info(report, stat)
-  if info.summary == none {
-    panic("unknown summary stat: " + stat)
-  }
-
-  diffst-pill(
+  _pill(
     _color(colors, info.summary.fill),
     _color(colors, info.summary.fg),
     (info.summary.label)(info.value),
   )
 }
 
-#let diffst-summary-stats(
+#let _summary-stats(
   report,
   stats: ("similarity", "additions", "deletions", "changed-blocks"),
   colors: (:),
 ) = {
-  stats.map(stat => diffst-summary-stat(report, stat, colors: colors))
+  stats.map(stat => _summary-stat(report, stat, colors: colors))
 }
 
 #let _summary(
@@ -424,7 +304,7 @@
   stats: ("similarity", "additions", "deletions", "changed-blocks"),
 ) = {
   let title = if title == auto {
-    diffst-summary-title(report, colors: colors)
+    _summary-title(report, colors: colors)
   } else {
     title
   }
@@ -435,7 +315,7 @@
       gutter: 6pt,
       align: horizon,
       title,
-      ..diffst-summary-stats(report, stats: stats, colors: colors),
+      .._summary-stats(report, stats: stats, colors: colors),
     )
   ]
 }
@@ -457,7 +337,7 @@
 
     (
       table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
-        #_muted(colors, [#old-state; #new-state], size: _line-size)
+        #_muted(colors, [#old-state; #new-state])
       ],
     )
   }
@@ -588,7 +468,7 @@
   .._diff-columns.map(col => _sync-cell(
     colors,
     _color(colors, "header"),
-    _strong(col.title, size: _line-size),
+    _strong(col.title),
     align: col.header-align,
   )),
 )
@@ -615,7 +495,7 @@
       .._diff-columns.enumerate().map(((column, col)) => _cell(
         colors,
         _color(colors, "header"),
-        _strong(col.title, size: _line-size),
+        _strong(col.title),
         align: col.header-align,
         stroke: _cell-stroke(colors, table-style, column, header: true),
       )),
@@ -624,7 +504,7 @@
       if row.kind == "collapsed" {
         (
           table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
-            #_muted(colors, [#row.hidden unchanged lines hidden], size: _line-size)
+            #_muted(colors, [#row.hidden unchanged lines hidden])
           ],
         )
       } else {
@@ -647,7 +527,7 @@
           _sync-cell(
             colors,
             _color(colors, "header"),
-            _strong(title, size: _line-size),
+            _strong(title),
             height: heights.header,
             align: if part == "line" { center } else { left },
             stroke: _split-rule(colors, table-style, column, header: true),
@@ -714,7 +594,7 @@
     inset: (x: 4pt, y: 3pt),
     align: center,
   )[
-    #_muted(colors, body, size: _line-size)
+    #_muted(colors, body)
   ],
 )
 
@@ -781,294 +661,29 @@
   ]
 }
 
-#let diffst-report(
-  old,
-  new,
-  old-content: auto,
-  new-content: auto,
-  ignore-whitespace: false,
-  show-whitespace: false,
-  algorithm: "histogram",
-  inline: "words",
-  unicode: true,
-  semantic-cleanup: true,
-) = {
-  let old-content = if old-content == auto { read(old) } else { old-content }
-  let new-content = if new-content == auto { read(new) } else { new-content }
-  let options = json.encode((
-    ignore_whitespace: ignore-whitespace,
-    show_whitespace: show-whitespace,
-    algorithm: algorithm,
-    inline: inline,
-    unicode: unicode,
-    semantic_cleanup: semantic-cleanup,
-  ))
-  let report = json(_engine.diff(bytes(old-content), bytes(new-content), bytes(options)))
+#let _debug-field(name, value) = [
+  #_strong(name)
+  #raw(json.encode(value), block: true)
+]
 
-  if "error" in report {
-    panic(report.error)
-  }
-
-  report + (
-    old: old,
-    new: new,
-  )
-}
-
-#let _line-in-range(value, start, end) = {
-  value != none and value >= start and value <= end
-}
-
-#let _row-in-range(row, start, end, side) = {
-  let old-hit = _line-in-range(row.at("old_no", default: none), start, end)
-  let new-hit = _line-in-range(row.at("new_no", default: none), start, end)
-  if side == "old" {
-    old-hit
-  } else if side == "new" {
-    new-hit
-  } else if side == "both" {
-    old-hit or new-hit
-  } else {
-    panic("range-side must be \"both\", \"old\", or \"new\"")
-  }
-}
-
-#let _range-rows(rows, range, side) = {
-  if range == auto {
-    rows
-  } else {
-    if range.len() != 2 {
-      panic("range must be (start, end)")
-    }
-    let start = range.first()
-    let end = range.last()
-    if start < 1 {
-      panic("range start must be greater than or equal to 1")
-    }
-    if end < start {
-      panic("range end must be greater than or equal to range start")
-    }
-
-    rows.filter(row => _row-in-range(row, start, end, side))
-  }
-}
-
-#let diffst-rows(
-  report,
-  display: "collapsed",
-  collapse-threshold: 14,
-  context-lines: 3,
-  range: auto,
-  range-side: "both",
-) = {
-  if context-lines < 0 {
-    panic("context-lines must be greater than or equal to 0")
-  }
-  if collapse-threshold < 0 {
-    panic("collapse-threshold must be greater than or equal to 0")
-  }
-
-  let rows = _range-rows(report.rows, range, range-side)
-  if display == "full" {
-    rows
-  } else if display == "collapsed" {
-    _with-collapse(rows, collapse-threshold, context-lines)
-  } else {
-    panic("display must be \"full\" or \"collapsed\"")
-  }
-}
-
-#let _empty_hunk(row-start) = (
-  ops: (),
-  row_start: row-start,
-  row_end: row-start,
-  context_before: 0,
-  context_after: 0,
-)
-
-#let _start_hunk(previous, op, context-lines) = {
-  let hunk = _empty_hunk(op.row_start)
-
-  if previous != none and previous.kind == "equal" {
-    hunk.ops.push(previous)
-    hunk.context_before = calc.min(previous.row_len, context-lines)
-    hunk.row_start = previous.row_start + previous.row_len - hunk.context_before
-  }
-
-  hunk
-}
-
-#let _equal_gap_exceeds_context(op, context-lines) = {
-  let hidden-prefix = op.row_len - calc.min(op.row_len, context-lines)
-  hidden-prefix > context-lines
-}
-
-#let _finish_hunk(report, hunk) = {
-  let rows = report.rows.slice(hunk.row_start, hunk.row_end)
-  let old-nos = rows
-    .filter(row => row.at("old_no", default: none) != none)
-    .map(row => row.old_no)
-  let new-nos = rows
-    .filter(row => row.at("new_no", default: none) != none)
-    .map(row => row.new_no)
-
-  (
-    ops: hunk.ops,
-    rows: rows,
-    row_start: hunk.row_start,
-    row_end: hunk.row_end,
-    context_before: hunk.context_before,
-    context_after: hunk.context_after,
-    old_start: if old-nos.len() == 0 { none } else { old-nos.first() },
-    old_len: old-nos.len(),
-    new_start: if new-nos.len() == 0 { none } else { new-nos.first() },
-    new_len: new-nos.len(),
-  )
-}
-
-#let diffst-hunks(report, context-lines: 3) = {
-  if context-lines < 0 {
-    panic("context-lines must be greater than or equal to 0")
-  }
-
-  let hunks = ()
-  let current = none
-  let previous = none
-
-  for op in report.ops {
-    if op.kind == "equal" {
-      if current != none {
-        current.ops.push(op)
-        current.row_end = op.row_start + op.row_len
-        current.context_after = calc.min(op.row_len, context-lines)
-
-        if _equal_gap_exceeds_context(op, context-lines) {
-          current.row_end = op.row_start + context-lines
-          hunks.push(_finish_hunk(report, current))
-          current = none
-        }
-      }
-    } else {
-      if current == none {
-        current = _start_hunk(previous, op, context-lines)
-      }
-
-      current.ops.push(op)
-      current.row_end = op.row_start + op.row_len
-    }
-
-    previous = op
-  }
-
-  if current != none {
-    hunks.push(_finish_hunk(report, current))
-  }
-
-  hunks
-}
-
-#let diffst-hunks-raw(report, context-lines: 3) = {
-  diffst-hunks(report, context-lines: context-lines).map(diffst-hunk-raw)
-}
-
-#let diffst-debug-raw(report, rows: auto, context-lines: 3) = {
-  let rows = if rows == auto { report.rows } else { rows }
-  let hunks = diffst-hunks-raw(report, context-lines: context-lines)
-  (
-    meta: report.meta,
-    stats: report.stats,
-    rows: diffst-row-counts-raw(rows),
-    ops: report.ops.len(),
-    hunks: hunks.len(),
-    messages: report.meta.messages,
-  )
-}
-
-#let _debug-value(value) = {
-  if value == true {
-    "true"
-  } else if value == false {
-    "false"
-  } else if value == none {
-    "none"
-  } else {
-    str(value)
-  }
-}
-
-#let _debug-row(colors, label, value) = (
-  table.cell(fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 2.5pt))[
-    #_strong(label, size: _code-size)
-  ],
-  table.cell(inset: (x: 4pt, y: 2.5pt))[
-    #text(size: _code-size)[#value]
-  ],
-)
-
-#let diffst-debug(
-  report,
-  rows: auto,
-  colors: (:),
-  context-lines: 3,
-  max-messages: 8,
-) = {
-  let colors = default-colors + colors
-  let raw = diffst-debug-raw(report, rows: rows, context-lines: context-lines)
-  let row-counts = raw.rows
-  let messages = raw.messages.slice(0, calc.min(max-messages, raw.messages.len()))
-
+/// Render the raw report fields for debugging.
+#let diffst-debug(report) = {
   block[
-    #grid(
-      columns: (1fr, auto),
-      gutter: 6pt,
-      align: horizon,
-      [
-        #_strong([diffst debug])
-        #linebreak()
-        #_muted(colors, [
-          #report.old #math.mapsto #report.new
-        ])
-      ],
-      diffst-pill(
-        _color(colors, "collapsed"),
-        _color(colors, "text"),
-        str(raw.ops) + " ops / " + str(row-counts.rows) + " rows",
-      ),
-    )
-    #v(5pt)
-    #table(
-      columns: (auto, 1fr),
-      stroke: _color(colors, "border"),
-      inset: (x: 4pt, y: 2.5pt),
-      .._debug-row(colors, "algorithm", raw.meta.algorithm),
-      .._debug-row(colors, "inline", raw.meta.inline),
-      .._debug-row(colors, "unicode", _debug-value(raw.meta.unicode)),
-      .._debug-row(colors, "ignore whitespace", _debug-value(raw.meta.ignore_whitespace)),
-      .._debug-row(colors, "show whitespace", _debug-value(raw.meta.show_whitespace)),
-      .._debug-row(colors, "semantic cleanup", _debug-value(raw.meta.semantic_cleanup)),
-      .._debug-row(colors, "old trailing newline", _debug-value(raw.meta.old_trailing_newline)),
-      .._debug-row(colors, "new trailing newline", _debug-value(raw.meta.new_trailing_newline)),
-      .._debug-row(colors, "old line endings", raw.meta.old_line_endings),
-      .._debug-row(colors, "new line endings", raw.meta.new_line_endings),
-      .._debug-row(colors, "old/new lines", str(raw.stats.old_lines) + " / " + str(raw.stats.new_lines)),
-      .._debug-row(colors, "equal lines", str(raw.stats.equal_lines)),
-      .._debug-row(colors, "line similarity", str(calc.round(raw.stats.similarity * 100)) + "%"),
-      .._debug-row(colors, "visible rows", str(row-counts.rows)),
-      .._debug-row(colors, "hidden rows", str(row-counts.hidden)),
-      .._debug-row(colors, "hunks", str(raw.hunks)),
-    )
-    #if messages.len() > 0 [
-      #v(5pt)
-      #_strong([messages], size: _pill-size)
-      #v(2pt)
-      #for message in messages [
-        #_muted(colors, [- #message])
-        #linebreak()
-      ]
-    ]
+    #_debug-field("report.old", report.old)
+    #_debug-field("report.new", report.new)
+    #_debug-field("report.meta", report.meta)
+    #_debug-field("report.stats", report.stats)
+    #_debug-field("report.ops", report.ops)
+    #_debug-field("report.rows", report.rows)
   ]
 }
 
+/// Render only the summary/header for a report.
+///
+/// - `title`: Custom title content, or `auto` for the default labels and line
+///   counts.
+/// - `stats`: Summary stat keys to render as pills.
+/// - `body`: Optional custom renderer `(report, colors) => content`.
 #let diffst-summary(
   report,
   colors: (:),
@@ -1099,6 +714,13 @@
   }
 }
 
+/// Render a report as the default split-table diff.
+///
+/// The split layout uses synchronized tables so old/new text columns can be
+/// selected separately in PDFs.
+///
+/// Pass either `rows` directly or let this function compute rows from
+/// `display`, `range`, and collapse options.
 #let diffst-table(
   report,
   rows: auto,
@@ -1115,6 +737,10 @@
   _diff-table(colors, rows, report: report, table-style: table-style)
 }
 
+/// Render a report as one Typst `table`.
+///
+/// This is useful for simpler table behavior, but PDF text selection is usually
+/// better with `diffst-table`.
 #let diffst-single-table(
   report,
   rows: auto,
@@ -1141,6 +767,11 @@
   }
 }
 
+/// Render a complete report layout from an existing report.
+///
+/// By default this renders a summary followed by either the split or single
+/// table. Pass `body: (report, rows, colors) => ...` to reuse diffst's row
+/// filtering and color resolution with a custom arrangement.
 #let diffst-layout(
   report,
   colors: (:),
@@ -1178,8 +809,8 @@
   let report = diffst-report(
     it.old,
     it.new,
-    old-content: it.at("old-content"),
-    new-content: it.at("new-content"),
+    old-label: it.at("old-label"),
+    new-label: it.at("new-label"),
     ignore-whitespace: it.at("ignore-whitespace"),
     show-whitespace: it.at("show-whitespace"),
     algorithm: it.algorithm,
@@ -1202,33 +833,41 @@
 #let _diffst-element = e.element.declare(
   "diffst",
   prefix: "diffst,v1",
-  doc: "Renders a side-by-side diff report for two text files.",
   display: _display,
   fields: (
-    e.field("old", str, doc: "Path or label for the old file.", required: true),
-    e.field("new", str, doc: "Path or label for the new file.", required: true),
-    e.field("old-content", e.types.any, doc: "Already-read old file contents. Use this for package imports where paths are relative to the caller.", default: auto),
-    e.field("new-content", e.types.any, doc: "Already-read new file contents. Use this for package imports where paths are relative to the caller.", default: auto),
-    e.field("ignore-whitespace", bool, doc: "Ignore whitespace while diffing lines.", default: false),
-    e.field("show-whitespace", bool, doc: "Render changed spaces and tabs visibly, and mark trailing whitespace on unchanged lines.", default: false),
-    e.field("algorithm", str, doc: "Diff algorithm: \"myers\", \"patience\", \"lcs\", \"hunt\", or \"histogram\".", default: "histogram"),
-    e.field("inline", str, doc: "Inline highlighting mode: \"chars\", \"words\", or \"none\".", default: "words"),
-    e.field("unicode", bool, doc: "Use Unicode-aware inline tokenization for graphemes and word boundaries.", default: true),
-    e.field("semantic-cleanup", bool, doc: "Run similar's semantic cleanup pass on inline highlights.", default: true),
-    e.field("display", str, doc: "Either \"collapsed\" or \"full\".", default: "collapsed"),
-    e.field("collapse-threshold", int, doc: "Minimum unchanged run length before collapsed display hides the middle.", default: 14),
-    e.field("context-lines", int, doc: "Unchanged lines to keep on each side of a collapsed region.", default: 3),
-    e.field("table-style", e.types.any, doc: "Table style dictionary, or \"default\"/\"minimal\".", default: default-table-style),
-    e.field("table-layout", str, doc: "Table renderer: \"split\" for synchronized selectable columns, or \"single\" for one Typst table.", default: "split"),
-    e.field("colors", e.types.dict(e.types.any), doc: "Color overrides merged with `default-colors`.", default: (:)),
+    e.field("old", str, required: true),
+    e.field("new", str, required: true),
+    e.field("old-label", str, default: "old"),
+    e.field("new-label", str, default: "new"),
+    e.field("ignore-whitespace", bool, default: false),
+    e.field("show-whitespace", bool, default: false),
+    e.field("algorithm", str, default: "histogram"),
+    e.field("inline", str, default: "words"),
+    e.field("unicode", bool, default: true),
+    e.field("semantic-cleanup", bool, default: true),
+    e.field("display", str, default: "collapsed"),
+    e.field("collapse-threshold", int, default: 14),
+    e.field("context-lines", int, default: 3),
+    e.field("table-style", e.types.any, default: default-table-style),
+    e.field("table-layout", str, default: "split"),
+    e.field("colors", e.types.dict(e.types.any), default: (:)),
   ),
 )
 
-#let diffst(
-  old: none,
-  new: none,
-  old-content: auto,
-  new-content: auto,
+/// Render a diff report from two text strings.
+///
+/// Use `diffst` for files and `diffst-content` when the text is already in
+/// Typst. The visual and diffing options match `diffst`.
+///
+/// - `old`: Old text content.
+/// - `new`: New text content.
+/// - `old-label`: Label shown above the old side.
+/// - `new-label`: Label shown above the new side.
+#let diffst-content(
+  old,
+  new,
+  old-label: "old",
+  new-label: "new",
   ignore-whitespace: false,
   show-whitespace: false,
   algorithm: "histogram",
@@ -1241,41 +880,12 @@
   table-style: default-table-style,
   table-layout: "split",
   colors: (:),
-  ..args,
-  __elembic_data: none,
-  __elembic_mode: auto,
-  __elembic_settings: (:),
-  __elembic_outer_label: false,
 ) = {
-  if __elembic_data != none {
-    return _diffst-element(
-      ..args,
-      __elembic_data: __elembic_data,
-      __elembic_mode: __elembic_mode,
-      __elembic_settings: __elembic_settings,
-      __elembic_outer_label: __elembic_outer_label,
-    )
-  }
-
-  let positional = args.pos()
-  if old == none and positional.len() > 0 {
-    old = positional.first()
-    positional = positional.slice(1)
-  }
-  if new == none and positional.len() > 0 {
-    new = positional.first()
-    positional = positional.slice(1)
-  }
-
-  assert(positional.len() == 0, message: "diffst: expected at most two positional arguments: old and new")
-  assert(old != none, message: "diffst: missing required argument: old")
-  assert(new != none, message: "diffst: missing required argument: new")
-
   _diffst-element(
     old,
     new,
-    old-content: old-content,
-    new-content: new-content,
+    old-label: old-label,
+    new-label: new-label,
     ignore-whitespace: ignore-whitespace,
     show-whitespace: show-whitespace,
     algorithm: algorithm,
@@ -1288,15 +898,71 @@
     table-style: table-style,
     table-layout: table-layout,
     colors: colors,
-    ..args.named(),
-    __elembic_data: __elembic_data,
-    __elembic_mode: __elembic_mode,
-    __elembic_settings: __elembic_settings,
-    __elembic_outer_label: __elembic_outer_label,
   )
 }
 
-#let minimal-table(body) = {
-  show: e.set_(diffst, colors: minimal-colors, table-style: minimal-table-style)
+/// Render a side-by-side diff report for two files.
+///
+/// This is the main convenience function. It reads `old-path` and `new-path`,
+/// diffs their contents, and renders the report.
+///
+/// - `old-label` / `new-label`: Override displayed labels. Defaults to the
+///   paths.
+/// - `algorithm`: `"histogram"`, `"myers"`, `"patience"`, `"lcs"`, or `"hunt"`.
+/// - `inline`: `"words"`, `"chars"`, or `"none"`.
+/// - `display`: `"collapsed"` or `"full"`.
+/// - `table-layout`: `"split"` or `"single"`.
+#let diffst(
+  old-path,
+  new-path,
+  old-label: auto,
+  new-label: auto,
+  ignore-whitespace: false,
+  show-whitespace: false,
+  algorithm: "histogram",
+  inline: "words",
+  unicode: true,
+  semantic-cleanup: true,
+  display: "collapsed",
+  collapse-threshold: 14,
+  context-lines: 3,
+  table-style: default-table-style,
+  table-layout: "split",
+  colors: (:),
+) = {
+  diffst-content(
+    read(old-path),
+    read(new-path),
+    old-label: if old-label == auto { old-path } else { old-label },
+    new-label: if new-label == auto { new-path } else { new-label },
+    ignore-whitespace: ignore-whitespace,
+    show-whitespace: show-whitespace,
+    algorithm: algorithm,
+    inline: inline,
+    unicode: unicode,
+    semantic-cleanup: semantic-cleanup,
+    display: display,
+    collapse-threshold: collapse-threshold,
+    context-lines: context-lines,
+    table-style: table-style,
+    table-layout: table-layout,
+    colors: colors,
+  )
+}
+
+/// Apply document-wide visual defaults to diffst reports.
+///
+/// Intended for `#show: diffst-style.with(...)`. This affects Elembic-backed
+/// `diffst` and `diffst-content` calls.
+#let diffst-style(body, colors: (:), table-style: default-table-style) = {
+  show: e.set_(_diffst-element, colors: colors, table-style: table-style)
   body
+}
+
+/// Apply the minimal print-oriented table style document-wide.
+///
+/// Equivalent to `diffst-style.with(colors: minimal-colors, table-style:
+/// minimal-table-style)`.
+#let minimal-table(body) = {
+  diffst-style(body, colors: minimal-colors, table-style: minimal-table-style)
 }

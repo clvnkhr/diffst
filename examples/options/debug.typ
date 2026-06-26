@@ -1,6 +1,5 @@
 #import "../../lib.typ": (
   diffst-debug,
-  diffst-debug-raw,
   diffst-report,
   diffst-rows,
   diffst-single-table,
@@ -10,9 +9,13 @@
 #set page(width: 297mm, height: 210mm, margin: 12mm)
 #set text(font: "New Computer Modern", size: 9pt)
 
+#let old-file = "../option-cases/unicode-old.txt"
+#let new-file = "../option-cases/unicode-new.txt"
 #let report = diffst-report(
-  "examples/option-cases/unicode-old.txt",
-  "examples/option-cases/unicode-new.txt",
+  read(old-file),
+  read(new-file),
+  old-label: "examples/option-cases/unicode-old.txt",
+  new-label: "examples/option-cases/unicode-new.txt",
   algorithm: "patience",
   inline: "words",
   unicode: true,
@@ -27,24 +30,9 @@
   context-lines: 2,
 )
 
-#let debug = diffst-debug-raw(report, rows: rows, context-lines: 2)
-
 = Debug messages
 
-#diffst-debug(report, rows: rows, context-lines: 2)
-
-#v(8pt)
-
-#grid(
-  columns: (1fr, 1fr, 1fr),
-  gutter: 8pt,
-  [*Raw algorithm*\
-  #debug.meta.algorithm],
-  [*Raw messages*\
-  #debug.messages.len()],
-  [*Raw hunks*\
-  #debug.hunks],
-)
+#diffst-debug(report)
 
 #v(8pt)
 

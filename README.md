@@ -8,20 +8,12 @@
 #let old-file = "old.typ"
 #let new-file = "new.typ"
 
-#diffst(
-  old-file,
-  new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
-)
+#diffst(old-file, new-file)
 ```
 
 The package reads two text files, sends their contents to a Rust WebAssembly
 plugin powered by the Rust `similar` crate, and renders the structured diff as
-Typst content.
-
-Curious about the internals? See `impl.md` for the Rust/WASM boundary, report
-shape, and Typst rendering pipeline.
+Typst content. If you already have strings, use `diffst-content`.
 
 ## Quick Start
 
@@ -34,8 +26,6 @@ shape, and Typst rendering pipeline.
 #diffst(
   old-file,
   new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
   inline: "words",
 )
 ```
@@ -47,16 +37,13 @@ show every line.
 #diffst(
   old-file,
   new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
   display: "full",
 )
 ```
 
-When `diffst` is imported as a package, file paths inside the package resolve
-relative to the package. Read files at the call site with `read(...)` and pass
-the resulting strings through `old-content` and `new-content`. The `old` and
-`new` arguments are still used as labels in the rendered report.
+`diffst(old-path, new-path, ..)` is the file convenience layer. For text you
+already have in Typst, call `diffst-content(old-text, new-text, old-label: ...,
+new-label: ..., ..)`.
 
 ## Main Options
 
@@ -64,8 +51,8 @@ the resulting strings through `old-content` and `new-content`. The `old` and
 #diffst(
   old-file,
   new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
+  old-label: "old draft",
+  new-label: "new draft",
   algorithm: "histogram",
   inline: "words",
   unicode: true,
@@ -96,9 +83,10 @@ the resulting strings through `old-content` and `new-content`. The `old` and
 - `show-whitespace`: makes changed spaces and tabs visible, and marks trailing
   spaces or tabs on otherwise unchanged lines. Marker drawings are vector
   overlays, so PDF copy/paste keeps the underlying whitespace.
-- `old-content` / `new-content`: already-read file contents. Use these with
-  package imports so `read(...)` runs in your document rather than inside the
-  package.
+- `diffst-content`: use this instead of `diffst` when you want to pass strings
+  directly. `old-label` and `new-label` control the rendered labels.
+- `old-label` / `new-label`: optional labels shown above the two sides. For
+  `diffst`, these default to the paths.
 - `display`: `"full"` or `"collapsed"`.
 - `context-lines`: unchanged lines to keep around collapsed regions.
 - `collapse-threshold`: unchanged run length required before collapsing.
@@ -110,13 +98,12 @@ the resulting strings through `old-content` and `new-content`. The `old` and
 
 ## Styling
 
-Override colors per report or document-wide through Elembic:
+Override colors per report or document-wide:
 
 ```typst
-#import "@preview/elembic:1.1.1" as e
-#import "@preview/diffst:0.1.0": diffst, default-colors
+#import "@preview/diffst:0.1.0": diffst, diffst-style, default-colors
 
-#show: e.set_(diffst, colors: default-colors + (
+#show: diffst-style.with(colors: default-colors + (
   replace: rgb("#e0f2fe"),
   inline-delete: rgb("#f0abfc"),
   inline-insert: rgb("#67e8f9"),
@@ -125,8 +112,6 @@ Override colors per report or document-wide through Elembic:
 #diffst(
   old-file,
   new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
 )
 ```
 
@@ -146,8 +131,6 @@ For printed papers or compact reports, use the minimal style:
 #diffst(
   old-file,
   new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
 )
 ```
 
@@ -163,8 +146,6 @@ Table style dictionaries control columns and stroke widths:
 #diffst(
   old-file,
   new-file,
-  old-content: read(old-file),
-  new-content: read(new-file),
   table-style: default-table-style + (
     columns: (2em, 1fr, 2em, 1fr),
     stroke-width: (header: 0.7pt, body: 0.35pt),
@@ -189,10 +170,10 @@ For custom reports, build from data upward:
 )
 
 #let report = diffst-report(
-  "paper-old.typ",
-  "paper-new.typ",
-  old-content: read("paper-old.typ"),
-  new-content: read("paper-new.typ"),
+  read("paper-old.typ"),
+  read("paper-new.typ"),
+  old-label: "paper-old.typ",
+  new-label: "paper-new.typ",
   inline: "words",
   semantic-cleanup: true,
 )
@@ -210,7 +191,11 @@ For custom reports, build from data upward:
 
 The main composition layers are:
 
-- `diffst-report(old, new, ..)` returns structured diff data and metadata.
+- `diffst(old-path, new-path, ..)` reads files and renders the default report.
+- `diffst-content(old-text, new-text, ..)` renders the default report from
+  already-read strings.
+- `diffst-report(old-text, new-text, ..)` returns structured diff data and
+  metadata from already-read strings.
 - `diffst-summary(report, ..)` renders the file labels, line counts, and stat
   pills.
 - `diffst-table(report, ..)` renders the default split-table diff.
@@ -243,22 +228,16 @@ arrangement:
 
 Use these when you want to compute your own layout:
 
+- `report.old`, `report.new`, `report.meta`, `report.stats`, `report.ops`, and
+  `report.rows` expose the underlying diff data.
 - `diffst-rows(report, display: .., range: ..)` returns renderable row
   dictionaries without emitting content.
 - `diffst-hunks(report, context-lines: ..)` returns hunk dictionaries with
   `ops`, `rows`, `old_start`, `old_len`, `new_start`, and `new_len`.
-- `diffst-debug(report, rows: ..)` renders a compact debug panel.
-- `diffst-debug-raw(report, rows: ..)` returns debug data.
-- `diffst-labels-raw(report)` returns `(old, new)`.
-- `diffst-line-counts-raw(report)` returns old/new line counts.
-- `diffst-stat-raw(report, "similarity")` returns one numeric stat.
-- `diffst-stats-raw(report, stats: (..))` returns `(key, value)` dictionaries.
-- `diffst-row-counts-raw(rows)` returns visible row counts by kind.
-- `diffst-hunk-raw(hunk)` returns numeric hunk ranges and context sizes.
-- `diffst-hunks-raw(report, context-lines: ..)` returns raw hunk summaries.
+- `diffst-debug(report)` renders the raw report fields.
 
-Supported stat keys are `"similarity"`, `"additions"`, `"deletions"`,
-`"changed-blocks"`, `"equal-lines"`, `"old-lines"`, and `"new-lines"`.
+The similarity score is available as `report.stats.similarity`, from `0.0` to
+`1.0`.
 
 ## Copy/Paste Notes
 
@@ -328,6 +307,18 @@ examples.
 If `wasm-opt` from Binaryen is installed, the smoke script optimizes
 `plugin.wasm` with `wasm-opt -Oz --enable-bulk-memory`; otherwise it uses the
 Cargo release artifact directly.
+
+For release checks, this package also works with community tooling:
+
+```sh
+rm -rf /tmp/diffst-package-check
+mkdir -p /tmp/diffst-package-check
+cp typst.toml lib.typ plugin.wasm README.md LICENSE /tmp/diffst-package-check/
+cp -R typst /tmp/diffst-package-check/
+typst-package-check check --offline /tmp/diffst-package-check
+tt run
+(cd /tmp/diffst-package-check && typship check)
+```
 
 `deadline-ms` is intentionally not exposed. The `similar` crate can use real
 deadlines when a clock is available, but Typst plugins do not currently provide

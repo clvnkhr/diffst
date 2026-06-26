@@ -3,9 +3,13 @@
 #set page(width: 297mm, height: 210mm, margin: 12mm)
 #set text(font: "New Computer Modern", size: 9pt)
 
+#let old-file = "paper-old.typ"
+#let new-file = "paper-new.typ"
 #let report = diffst-report(
-  "examples/paper-old.typ",
-  "examples/paper-new.typ",
+  read(old-file),
+  read(new-file),
+  old-label: "examples/" + old-file,
+  new-label: "examples/" + new-file,
   inline: "words",
   semantic-cleanup: true,
 )
