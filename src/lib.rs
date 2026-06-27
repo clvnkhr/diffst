@@ -78,15 +78,15 @@ enum InlineMode {
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct RawOptions {
+struct RawOptions<'a> {
     #[serde(default)]
     ignore_whitespace: bool,
     #[serde(default)]
     show_whitespace: bool,
     #[serde(default = "default_algorithm")]
-    algorithm: String,
+    algorithm: &'a str,
     #[serde(default = "default_inline")]
-    inline: String,
+    inline: &'a str,
     #[serde(default = "default_unicode")]
     unicode: bool,
     #[serde(default = "default_true")]
@@ -119,12 +119,12 @@ impl Options {
     }
 }
 
-fn default_algorithm() -> String {
-    "histogram".to_owned()
+fn default_algorithm() -> &'static str {
+    "histogram"
 }
 
-fn default_inline() -> String {
-    "words".to_owned()
+fn default_inline() -> &'static str {
+    "words"
 }
 
 fn default_unicode() -> bool {
@@ -137,7 +137,7 @@ fn default_true() -> bool {
 
 struct LineInput<'a> {
     text: &'a str,
-    lines: Vec<String>,
+    lines: Vec<&'a str>,
     trailing_newline: bool,
     line_endings: &'static str,
 }
@@ -155,8 +155,8 @@ impl<'a> LineInput<'a> {
 
 struct ReportBuilder<'a> {
     report: DiffReport<'a>,
-    old_lines: &'a [String],
-    new_lines: &'a [String],
+    old_lines: &'a [&'a str],
+    new_lines: &'a [&'a str],
     options: Options,
 }
 
@@ -208,15 +208,15 @@ impl<'a> ReportBuilder<'a> {
         self.report.stats.equal_lines += len;
 
         for offset in 0..len {
-            let old_line = &self.old_lines[old_index + offset];
-            let new_line = &self.new_lines[new_index + offset];
+            let old_line = self.old_lines[old_index + offset];
+            let new_line = self.new_lines[new_index + offset];
             self.report.rows.push(DiffRow {
                 kind: "equal",
                 old_no: Some(old_index + offset + 1),
-                old: Some(old_line.as_str()),
+                old: Some(old_line),
                 old_spans: equal_spans(old_line, self.options.show_whitespace),
                 new_no: Some(new_index + offset + 1),
-                new: Some(new_line.as_str()),
+                new: Some(new_line),
                 new_spans: equal_spans(new_line, self.options.show_whitespace),
             });
         }
@@ -230,11 +230,11 @@ impl<'a> ReportBuilder<'a> {
         self.report.stats.deletions += old_len;
 
         for offset in 0..old_len {
-            let old_line = &self.old_lines[old_index + offset];
+            let old_line = self.old_lines[old_index + offset];
             self.report.rows.push(DiffRow {
                 kind: "delete",
                 old_no: Some(old_index + offset + 1),
-                old: Some(old_line.as_str()),
+                old: Some(old_line),
                 old_spans: Some(deleted_spans(old_line, self.options.show_whitespace)),
                 new_no: None,
                 new: None,
@@ -251,14 +251,14 @@ impl<'a> ReportBuilder<'a> {
         self.report.stats.additions += new_len;
 
         for offset in 0..new_len {
-            let new_line = &self.new_lines[new_index + offset];
+            let new_line = self.new_lines[new_index + offset];
             self.report.rows.push(DiffRow {
                 kind: "insert",
                 old_no: None,
                 old: None,
                 old_spans: None,
                 new_no: Some(new_index + offset + 1),
-                new: Some(new_line.as_str()),
+                new: Some(new_line),
                 new_spans: Some(inserted_spans(new_line, self.options.show_whitespace)),
             });
         }
@@ -279,8 +279,8 @@ impl<'a> ReportBuilder<'a> {
         self.report.stats.additions += new_len;
 
         for offset in 0..old_len.max(new_len) {
-            let old_line = (offset < old_len).then(|| self.old_lines[old_index + offset].as_str());
-            let new_line = (offset < new_len).then(|| self.new_lines[new_index + offset].as_str());
+            let old_line = (offset < old_len).then(|| self.old_lines[old_index + offset]);
+            let new_line = (offset < new_len).then(|| self.new_lines[new_index + offset]);
             let (old_spans, new_spans) = replace_spans(old_line, new_line, &self.options)?;
 
             self.report.rows.push(DiffRow {
@@ -425,8 +425,8 @@ fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: &Options) -> Di
 fn line_ops(
     algorithm: Algorithm,
     ignore_whitespace: bool,
-    old_lines: &[String],
-    new_lines: &[String],
+    old_lines: &[&str],
+    new_lines: &[&str],
 ) -> Vec<DiffOp> {
     if ignore_whitespace {
         let old_keys = old_lines
@@ -804,10 +804,10 @@ fn marker_kind(kind: &'static str) -> &'static str {
     }
 }
 
-fn split_lines(text: &str) -> Vec<String> {
+fn split_lines(text: &str) -> Vec<&str> {
     let mut lines = text
         .split('\n')
-        .map(|line| line.strip_suffix('\r').unwrap_or(line).to_owned())
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
         .collect::<Vec<_>>();
 
     if text.ends_with('\n') {
