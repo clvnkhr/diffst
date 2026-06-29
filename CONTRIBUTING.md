@@ -76,5 +76,12 @@ typst-package-check check --offline package-pr/packages/preview/diffst/0.1.0
 (cd package-pr/packages/preview/diffst/0.1.0 && typship check)
 ```
 
+Install the generated package into the `@local` namespace and compile an import
+smoke test:
+
+```sh
+sh scripts/local-package-smoke.sh
+```
+
 Copy the generated `packages/preview/diffst/0.1.0/` directory into a branch of
 the official Typst packages repository when opening the release PR.
