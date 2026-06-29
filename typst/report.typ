@@ -25,5 +25,17 @@
   report + (
     old: old-label,
     new: new-label,
+    labels: (
+      old: old-label,
+      new: new-label,
+    ),
+    options: (
+      ignore-whitespace: ignore-whitespace,
+      show-whitespace: show-whitespace,
+      algorithm: algorithm,
+      inline: inline,
+      unicode: unicode,
+      semantic-cleanup: semantic-cleanup,
+    ),
   )
 }

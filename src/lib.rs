@@ -111,8 +111,8 @@ impl Options {
         Ok(Self {
             ignore_whitespace: raw.ignore_whitespace,
             show_whitespace: raw.show_whitespace,
-            algorithm: parse_algorithm(&raw.algorithm)?,
-            inline: parse_inline_mode(&raw.inline)?,
+            algorithm: parse_algorithm(raw.algorithm)?,
+            inline: parse_inline_mode(raw.inline)?,
             unicode: raw.unicode,
             semantic_cleanup: raw.semantic_cleanup,
         })
@@ -164,7 +164,7 @@ impl<'a> ReportBuilder<'a> {
     fn new(old: &'a LineInput<'a>, new: &'a LineInput<'a>, options: Options) -> Self {
         Self {
             report: DiffReport {
-                meta: build_meta(old, new, &options),
+                meta: build_meta(old, new, options),
                 stats: DiffStats {
                     old_lines: old.lines.len(),
                     new_lines: new.lines.len(),
@@ -281,7 +281,7 @@ impl<'a> ReportBuilder<'a> {
         for offset in 0..old_len.max(new_len) {
             let old_line = (offset < old_len).then(|| self.old_lines[old_index + offset]);
             let new_line = (offset < new_len).then(|| self.new_lines[new_index + offset]);
-            let (old_spans, new_spans) = replace_spans(old_line, new_line, &self.options)?;
+            let (old_spans, new_spans) = replace_spans(old_line, new_line, self.options)?;
 
             self.report.rows.push(DiffRow {
                 kind: "replace",
@@ -373,10 +373,12 @@ fn diff_impl(old: &[u8], new: &[u8], options: &[u8]) -> Result<Vec<u8>, String> 
     serde_json::to_vec(&builder.finish()).map_err(|err| err.to_string())
 }
 
-fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: &Options) -> DiffMeta {
-    let mut messages = Vec::with_capacity(7);
-    messages.push(format!("algorithm: {}", algorithm_name(options.algorithm)));
-    messages.push(format!("inline: {}", options.inline.name()));
+fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: Options) -> DiffMeta {
+    let algorithm = algorithm_name(options.algorithm);
+    let inline = options.inline.name();
+    let mut messages = Vec::with_capacity(8);
+    messages.push(format!("algorithm: {algorithm}"));
+    messages.push(format!("inline: {inline}"));
 
     if options.unicode {
         messages.push("unicode inline tokenization enabled".to_owned());
@@ -408,8 +410,8 @@ fn build_meta(old: &LineInput<'_>, new: &LineInput<'_>, options: &Options) -> Di
     }
 
     DiffMeta {
-        algorithm: algorithm_name(options.algorithm),
-        inline: options.inline.name(),
+        algorithm,
+        inline,
         ignore_whitespace: options.ignore_whitespace,
         show_whitespace: options.show_whitespace,
         unicode: options.unicode,
@@ -455,7 +457,7 @@ fn similarity_score(equal_lines: usize, old_lines: usize, new_lines: usize) -> f
 fn replace_spans(
     old_line: Option<&str>,
     new_line: Option<&str>,
-    options: &Options,
+    options: Options,
 ) -> Result<SpanPair, String> {
     match (old_line, new_line) {
         (Some(old_line), Some(new_line)) => inline_spans(old_line, new_line, options),
@@ -486,17 +488,44 @@ fn equal_spans(text: &str, show_whitespace: bool) -> Option<Vec<InlineSpan>> {
     Some(display_trailing_whitespace_spans(text))
 }
 
-fn inline_spans(old_line: &str, new_line: &str, options: &Options) -> Result<SpanPair, String> {
-    if options.inline == InlineMode::None {
-        return Ok((None, None));
+fn inline_spans(old_line: &str, new_line: &str, options: Options) -> Result<SpanPair, String> {
+    match (options.inline, options.unicode) {
+        (InlineMode::None, _) => Ok((None, None)),
+        (InlineMode::Chars, true) => {
+            let old_tokens = old_line.tokenize_graphemes();
+            let new_tokens = new_line.tokenize_graphemes();
+            inline_spans_for_tokens(&old_tokens, &new_tokens, options)
+        }
+        (InlineMode::Chars, false) => {
+            let old_tokens = char_tokens(old_line);
+            let new_tokens = char_tokens(new_line);
+            inline_spans_for_tokens(&old_tokens, &new_tokens, options)
+        }
+        (InlineMode::Words, true) => {
+            let old_tokens = old_line.tokenize_unicode_words();
+            let new_tokens = new_line.tokenize_unicode_words();
+            inline_spans_for_tokens(&old_tokens, &new_tokens, options)
+        }
+        (InlineMode::Words, false) => {
+            let old_tokens = word_tokens(old_line);
+            let new_tokens = word_tokens(new_line);
+            inline_spans_for_tokens(&old_tokens, &new_tokens, options)
+        }
     }
+}
 
-    let old_tokens = inline_tokens(old_line, options.inline, options.unicode);
-    let new_tokens = inline_tokens(new_line, options.inline, options.unicode);
+fn inline_spans_for_tokens<T>(
+    old_tokens: &[T],
+    new_tokens: &[T],
+    options: Options,
+) -> Result<SpanPair, String>
+where
+    T: AsRef<str> + Eq + std::hash::Hash,
+{
     let ops = if options.semantic_cleanup {
-        capture_compact_diff_slices(options.algorithm, &old_tokens, &new_tokens)?
+        capture_compact_diff_slices(options.algorithm, old_tokens, new_tokens)?
     } else {
-        capture_diff_slices(options.algorithm, &old_tokens, &new_tokens)
+        capture_diff_slices(options.algorithm, old_tokens, new_tokens)
     };
     let mut old_spans = Vec::with_capacity(ops.len());
     let mut new_spans = Vec::with_capacity(ops.len());
@@ -582,25 +611,11 @@ where
     Ok(compact.into_inner().into_inner().into_ops())
 }
 
-fn inline_tokens(line: &str, inline: InlineMode, unicode: bool) -> Vec<String> {
-    match inline {
-        InlineMode::Chars if unicode => line
-            .tokenize_graphemes()
-            .into_iter()
-            .map(ToOwned::to_owned)
-            .collect(),
-        InlineMode::Chars => line.chars().map(|ch| ch.to_string()).collect(),
-        InlineMode::Words if unicode => line
-            .tokenize_unicode_words()
-            .into_iter()
-            .map(ToOwned::to_owned)
-            .collect(),
-        InlineMode::Words => word_tokens(line),
-        InlineMode::None => Vec::new(),
-    }
+fn char_tokens(line: &str) -> Vec<String> {
+    line.chars().map(|ch| ch.to_string()).collect()
 }
 
-fn word_tokens(line: &str) -> Vec<String> {
+fn word_tokens(line: &str) -> Vec<&str> {
     let mut tokens = Vec::new();
     let mut start = 0;
     let mut current_kind = None;
@@ -608,7 +623,7 @@ fn word_tokens(line: &str) -> Vec<String> {
     for (index, ch) in line.char_indices() {
         let kind = token_kind(ch);
         if current_kind.is_some_and(|active| active != kind) {
-            tokens.push(line[start..index].to_owned());
+            tokens.push(&line[start..index]);
             start = index;
         }
 
@@ -616,7 +631,7 @@ fn word_tokens(line: &str) -> Vec<String> {
     }
 
     if start < line.len() {
-        tokens.push(line[start..].to_owned());
+        tokens.push(&line[start..]);
     }
 
     tokens
@@ -667,20 +682,22 @@ fn parse_inline_mode(value: &str) -> Result<InlineMode, String> {
     }
 }
 
-fn push_span<'a>(
+fn push_span<'a, T>(
     spans: &mut Vec<InlineSpan>,
     kind: &'static str,
-    tokens: impl Iterator<Item = &'a String>,
+    tokens: impl Iterator<Item = &'a T>,
     show_whitespace: bool,
-) {
+) where
+    T: AsRef<str> + 'a,
+{
     if !show_whitespace {
         for token in tokens {
-            push_text(spans, kind, token);
+            push_text(spans, kind, token.as_ref());
         }
         return;
     }
 
-    for ch in tokens.flat_map(|token| token.chars()) {
+    for ch in tokens.flat_map(|token| token.as_ref().chars()) {
         push_display_char(spans, kind, ch, show_whitespace);
     }
 }
@@ -750,8 +767,8 @@ fn display_trailing_whitespace_spans(text: &str) -> Vec<InlineSpan> {
     let start = trailing_horizontal_whitespace_start(text);
     let mut spans = Vec::with_capacity(2);
 
-    for ch in text[..start].chars() {
-        push_display_char(&mut spans, "equal", ch, false);
+    if start > 0 {
+        push_text(&mut spans, "equal", &text[..start]);
     }
     for ch in text[start..].chars() {
         push_display_char(&mut spans, "equal", ch, true);

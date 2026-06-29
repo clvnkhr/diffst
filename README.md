@@ -15,10 +15,17 @@ The package reads two text files, sends their contents to a Rust WebAssembly
 plugin powered by the Rust `similar` crate, and renders the structured diff as
 Typst content. If you already have strings, use `diffst-content`.
 
+Want a report for everything changed between two commits? Use the
+[`uv` runnable git-diff helper](#git-commit-diffs) from the
+[`clvnkhr/diffst`](https://github.com/clvnkhr/diffst) source repository to
+generate a Typst document from a pair of Git revisions.
+
 ## Quick Start
 
 ```typst
 #import "@preview/diffst:0.1.0": diffst
+
+#set page(height: auto)
 
 #let old-file = "draft-old.typ"
 #let new-file = "draft-new.typ"
@@ -29,6 +36,9 @@ Typst content. If you already have strings, use `diffst-content`.
   inline: "words",
 )
 ```
+
+For an unbroken review view, `#set page(height: auto)` lets the diff flow as
+one continuous page instead of splitting tables across fixed-height pages.
 
 By default, `diffst` collapses long unchanged regions. Use `display: "full"` to
 show every line.
@@ -228,8 +238,9 @@ arrangement:
 
 Use these when you want to compute your own layout:
 
-- `report.old`, `report.new`, `report.meta`, `report.stats`, `report.ops`, and
-  `report.rows` expose the underlying diff data.
+- `report.labels`, `report.options`, `report.meta`, `report.stats`,
+  `report.ops`, and `report.rows` expose the underlying diff data. The older
+  `report.old` and `report.new` label aliases are also available.
 - `diffst-rows(report, display: .., range: ..)` returns renderable row
   dictionaries without emitting content.
 - `diffst-hunks(report, context-lines: ..)` returns hunk dictionaries with
@@ -268,7 +279,7 @@ even when the lines look visually similar.
 
 ## Examples
 
-Focused option examples live in `examples/options/`:
+Focused diff option examples live in `examples/diffs/`:
 
 - algorithms: `algorithm-myers.typ`, `algorithm-patience.typ`,
   `algorithm-histogram.typ`, `algorithm-lcs.typ`, `algorithm-hunt.typ`
@@ -280,44 +291,59 @@ Focused option examples live in `examples/options/`:
 - other: `unicode.typ`, `semantic-cleanup.typ`, `long-lines.typ`,
   `table-layout.typ`, `debug.typ`, `hunks.typ`
 
+Source fixtures used by the examples live in `examples/sources/`.
+
 Larger examples:
 
-- `examples/basic.typ`
-- `examples/realistic.typ`
-- `examples/custom-colors.typ`
-- `examples/minimal-table.typ`
-- `examples/show-rules.typ`
-- `examples/manual-layout.typ`
-- `examples/partial-report.typ`
+- `examples/diffs/basic.typ`
+- `examples/diffs/realistic.typ`
+- `examples/diffs/custom-colors.typ`
+- `examples/diffs/minimal-table.typ`
+- `examples/diffs/show-rules.typ`
+- `examples/diffs/manual-layout.typ`
+- `examples/diffs/partial-report.typ`
+
+### Git Commit Diffs
+
+The `uv` runnable helper [`python/git-diff.py`](python/git-diff.py), also
+available in the [`clvnkhr/diffst`](https://github.com/clvnkhr/diffst) source
+repository, generates a Typst report for all files changed between two Git
+revisions. It accepts full or short commit hashes, writes one section per
+changed file, and adds an outline plus back-to-top links.
+
+```sh
+python/git-diff.py cece06a 8b48d70 --output examples/diffs/git-cece06a-8b48d70.typ
+python/git-diff.py b8ccbd3 cece06a --output examples/diffs/git-b8ccbd3-cece06a.typ
+
+typst compile --root . examples/diffs/git-cece06a-8b48d70.typ examples/diffs/git-cece06a-8b48d70.pdf
+typst compile --root . examples/diffs/git-b8ccbd3-cece06a.typ examples/diffs/git-b8ccbd3-cece06a.pdf
+```
 
 ## Build
+
+Contributor setup, release checks, and Typst Universe PR packaging are
+documented in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```sh
 rustup target add wasm32-unknown-unknown
 sh scripts/smoke.sh
 ```
 
-The smoke script runs `cargo test`, builds the WASM plugin, and compiles every
-example to `${TMPDIR:-/tmp}/diffst-smoke`.
+Development requires `wasm-opt` from Binaryen. The smoke script runs
+`cargo test`, builds the WASM plugin, optimizes it with
+`wasm-opt -Oz --enable-bulk-memory`, and compiles every example to
+`${TMPDIR:-/tmp}/diffst-smoke`.
 
 The package loads `plugin.wasm` from the repository root. `scripts/smoke.sh`
-refreshes that package-local artifact from the release build before compiling
-examples.
-
-If `wasm-opt` from Binaryen is installed, the smoke script optimizes
-`plugin.wasm` with `wasm-opt -Oz --enable-bulk-memory`; otherwise it uses the
-Cargo release artifact directly.
+refreshes that package-local artifact from the optimized release build before
+compiling examples.
 
 For release checks, this package also works with community tooling:
 
 ```sh
-rm -rf /tmp/diffst-package-check
-mkdir -p /tmp/diffst-package-check
-cp typst.toml lib.typ plugin.wasm README.md LICENSE /tmp/diffst-package-check/
-cp -R typst /tmp/diffst-package-check/
-typst-package-check check --offline /tmp/diffst-package-check
-tt run
-(cd /tmp/diffst-package-check && typship check)
+scripts/package-pr.py
+typst-package-check check --offline package-pr/packages/preview/diffst/0.1.0
+(cd package-pr/packages/preview/diffst/0.1.0 && typship check)
 ```
 
 `deadline-ms` is intentionally not exposed. The `similar` crate can use real

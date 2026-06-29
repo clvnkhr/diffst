@@ -24,12 +24,13 @@
 /// Build a structured diff report from two text strings.
 ///
 /// Use this when composing your own report layout. The returned dictionary
-/// contains `old`, `new`, `meta`, `stats`, `ops`, and `rows`.
+/// contains `old`, `new`, `labels`, `options`, `meta`, `stats`, `ops`, and
+/// `rows`.
 ///
-/// - `old`: Old text content.
-/// - `new`: New text content.
-/// - `old-label`: Label stored as `report.old`.
-/// - `new-label`: Label stored as `report.new`.
+/// - `old`: Old label, kept for compatibility.
+/// - `new`: New label, kept for compatibility.
+/// - `old-label`: Label stored as `report.labels.old`.
+/// - `new-label`: Label stored as `report.labels.new`.
 /// - `algorithm`: `"histogram"`, `"myers"`, `"patience"`, `"lcs"`, or `"hunt"`.
 /// - `inline`: `"words"`, `"chars"`, or `"none"`.
 #let diffst-report = report.diffst-report
@@ -57,10 +58,6 @@
 
 #let _muted(colors, body) = {
   text(fill: _color(colors, "line-no"))[#body]
-}
-
-#let _strong(body) = {
-  text(weight: "bold")[#body]
 }
 
 #let _cell(colors, fill, body, align: left, stroke: auto) = {
@@ -140,7 +137,9 @@
   context {
     let column-width = measure(raw(" ", block: false)).width
     for marker in markers.clusters() {
-      let shape-width = if marker == "·" { 1.5pt } else if marker == "→" { 3.8pt } else if marker == "␍" { 5pt } else { 6pt }
+      let shape-width = if marker == "·" { 1.5pt } else if marker == "→" { 3.8pt } else if marker == "␍" { 5pt } else {
+        6pt
+      }
       let shape-height = if marker == "·" { 1.5pt } else if marker == "→" { 3pt } else { 5pt }
       let baseline-shift = if marker == "·" { 2.35pt } else { shape-height }
 
@@ -211,7 +210,7 @@
   fill: fill,
   inset: (x: 5pt, y: 2pt),
   radius: 2pt,
-)[#text(fill: fg, weight: "bold")[#body]]
+)[#text(fill: fg)[#strong[#body]]]
 
 #let _stat-info(report, stat) = {
   if stat == "similarity" {
@@ -258,11 +257,9 @@
 #let _summary-label(report, colors: (:)) = {
   let colors = default-colors + colors
   [
-    #_strong(report.old)
-    #h(3pt)
-    #text(fill: _color(colors, "line-no"))[#math.mapsto]
-    #h(3pt)
-    #_strong(report.new)
+    #strong(report.old)
+    #_muted(colors, sym.arrow)
+    #strong(report.new)
   ]
 }
 
@@ -275,8 +272,6 @@
 
 #let _summary-title(report, colors: (:)) = [
   #_summary-label(report, colors: colors)
-  #linebreak()
-  #_summary-lines(report, colors: colors)
 ]
 
 #let _summary-stat(report, stat, colors: (:)) = {
@@ -297,6 +292,15 @@
   stats.map(stat => _summary-stat(report, stat, colors: colors))
 }
 
+#let _summary-stats-line(report, stats, colors: (:)) = [
+  #_summary-lines(report, colors: colors)
+  #h(1fr)
+  #for stat in _summary-stats(report, stats: stats, colors: colors) {
+    stat
+    [ ]
+  }
+]
+
 #let _summary(
   colors,
   report,
@@ -309,14 +313,10 @@
     title
   }
 
-  block[
-    #grid(
-      columns: (1fr,) + stats.map(_ => auto),
-      gutter: 6pt,
-      align: horizon,
-      title,
-      .._summary-stats(report, stats: stats, colors: colors),
-    )
+  [
+    #title
+    #linebreak()
+    #_summary-stats-line(report, stats, colors: colors)
   ]
 }
 
@@ -429,6 +429,23 @@
   (title: [Content], side: "new", part: "content", align: left, header-align: left),
 )
 
+#let _report-label(report, side) = {
+  if report == none {
+    none
+  } else {
+    report.at("labels", default: (:)).at(side, default: report.at(side, default: none))
+  }
+}
+
+#let _column-title(report, col) = {
+  let label = _report-label(report, col.side)
+  if col.part == "content" and label != none {
+    label
+  } else {
+    col.title
+  }
+}
+
 #let _row-part(colors, row, side, part) = {
   if side == "old" and part == "line" {
     _line-no(colors, row.at("old_no", default: none))
@@ -461,27 +478,29 @@
   )),
 )
 
-#let _header-prototype(colors, table-style) = table(
+#let _header-prototype(colors, table-style, report: none) = table(
   columns: table-style.columns,
   stroke: none,
   inset: 0pt,
   .._diff-columns.map(col => _sync-cell(
     colors,
     _color(colors, "header"),
-    _strong(col.title),
+    strong(_column-title(report, col)),
     align: col.header-align,
   )),
 )
 
 #let _single-row-cells(colors, table-style, row) = {
   let fill = _row-fill(colors, row.kind)
-  _diff-columns.enumerate().map(((column, col)) => _cell(
-    colors,
-    fill,
-    _row-part(colors, row, col.side, col.part),
-    align: col.align,
-    stroke: _cell-stroke(colors, table-style, column),
-  ))
+  _diff-columns
+    .enumerate()
+    .map(((column, col)) => _cell(
+      colors,
+      fill,
+      _row-part(colors, row, col.side, col.part),
+      align: col.align,
+      stroke: _cell-stroke(colors, table-style, column),
+    ))
 }
 
 #let _single-table(colors, rows, report: none, table-style: default-table-style) = {
@@ -492,30 +511,45 @@
     inset: 0pt,
     table.header(
       repeat: true,
-      .._diff-columns.enumerate().map(((column, col)) => _cell(
-        colors,
-        _color(colors, "header"),
-        _strong(col.title),
-        align: col.header-align,
-        stroke: _cell-stroke(colors, table-style, column, header: true),
-      )),
+      .._diff-columns
+        .enumerate()
+        .map(((column, col)) => _cell(
+          colors,
+          _color(colors, "header"),
+          strong(_column-title(report, col)),
+          align: col.header-align,
+          stroke: _cell-stroke(colors, table-style, column, header: true),
+        )),
     ),
-    ..rows.map(row => {
-      if row.kind == "collapsed" {
-        (
-          table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
-            #_muted(colors, [#row.hidden unchanged lines hidden])
-          ],
-        )
-      } else {
-        _single-row-cells(colors, table-style, row)
-      }
-    }).flatten(),
+    ..rows
+      .map(row => {
+        if row.kind == "collapsed" {
+          (
+            table.cell(colspan: 4, fill: _color(colors, "collapsed"), inset: (x: 4pt, y: 3pt), align: center)[
+              #_muted(colors, [#row.hidden unchanged lines hidden])
+            ],
+          )
+        } else {
+          _single-row-cells(colors, table-style, row)
+        }
+      })
+      .flatten(),
     .._trailing-newline-rows(colors, report),
   )
 }
 
-#let _split-column-table(colors, table-style, rows, title, side, part, column, heights, header: false, top-row-border: false) = block(width: 100%)[
+#let _split-column-table(
+  colors,
+  table-style,
+  rows,
+  title,
+  side,
+  part,
+  column,
+  heights,
+  header: false,
+  top-row-border: false,
+) = block(width: 100%)[
   #table(
     columns: (100%,),
     stroke: none,
@@ -527,7 +561,7 @@
           _sync-cell(
             colors,
             _color(colors, "header"),
-            _strong(title),
+            strong(title),
             height: heights.header,
             align: if part == "line" { center } else { left },
             stroke: _split-rule(colors, table-style, column, header: true),
@@ -537,40 +571,46 @@
     } else {
       ()
     },
-    ..rows.enumerate().map(((index, row)) => _sync-cell(
-      colors,
-      _row-fill(colors, row.kind),
-      _row-part(colors, row, side, part),
-      height: heights.rows.at(index),
-      align: if part == "line" { right } else { left },
-      stroke: _split-rule(colors, table-style, column, top: top-row-border and index == 0),
-    )),
+    ..rows
+      .enumerate()
+      .map(((index, row)) => _sync-cell(
+        colors,
+        _row-fill(colors, row.kind),
+        _row-part(colors, row, side, part),
+        height: heights.rows.at(index),
+        align: if part == "line" { right } else { left },
+        stroke: _split-rule(colors, table-style, column, top: top-row-border and index == 0),
+      )),
   )
 ]
 
-#let _split-normal-table(colors, table-style, rows, header: false, top-row-border: false) = layout(size => {
-  let heights = (
-    header: measure(_header-prototype(colors, table-style), width: size.width).height,
-    rows: rows.map(row => measure(_row-prototype(colors, table-style, row), width: size.width).height),
-  )
+#let _split-normal-table(colors, table-style, rows, report: none, header: false, top-row-border: false) = layout(
+  size => {
+    let heights = (
+      header: measure(_header-prototype(colors, table-style, report: report), width: size.width).height,
+      rows: rows.map(row => measure(_row-prototype(colors, table-style, row), width: size.width).height),
+    )
 
-  grid(
-    columns: table-style.columns,
-    gutter: 0pt,
-    .._diff-columns.enumerate().map(((column, col)) => _split-column-table(
-      colors,
-      table-style,
-      rows,
-      col.title,
-      col.side,
-      col.part,
-      column,
-      heights,
-      header: header,
-      top-row-border: top-row-border,
-    )),
-  )
-})
+    grid(
+      columns: table-style.columns,
+      gutter: 0pt,
+      .._diff-columns
+        .enumerate()
+        .map(((column, col)) => _split-column-table(
+          colors,
+          table-style,
+          rows,
+          _column-title(report, col),
+          col.side,
+          col.part,
+          column,
+          heights,
+          header: header,
+          top-row-border: top-row-border,
+        )),
+    )
+  },
+)
 
 #let _full-width-rule(colors, table-style) = {
   if table-style.rules == "default" {
@@ -643,7 +683,14 @@
     #for chunk in chunks {
       if chunk.kind == "normal" {
         block(above: 0pt, below: 0pt)[
-          #_split-normal-table(colors, table-style, chunk.rows, header: header, top-row-border: after-note)
+          #_split-normal-table(
+            colors,
+            table-style,
+            chunk.rows,
+            report: report,
+            header: header,
+            top-row-border: after-note,
+          )
         ]
         header = false
         after-note = false
@@ -662,7 +709,7 @@
 }
 
 #let _debug-field(name, value) = [
-  #_strong(name)
+  #strong(name)
   #raw(json.encode(value), block: true)
 ]
 
@@ -671,6 +718,8 @@
   block[
     #_debug-field("report.old", report.old)
     #_debug-field("report.new", report.new)
+    #_debug-field("report.labels", report.labels)
+    #_debug-field("report.options", report.options)
     #_debug-field("report.meta", report.meta)
     #_debug-field("report.stats", report.stats)
     #_debug-field("report.ops", report.ops)
@@ -797,7 +846,7 @@
   if body == auto {
     block(width: 100%)[
       #_summary(colors, report)
-      #v(6pt)
+      #linebreak()
       #_render-table(colors, report, rows, table-style, table-layout)
     ]
   } else {

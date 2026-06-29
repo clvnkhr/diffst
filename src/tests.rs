@@ -2,7 +2,7 @@ use super::*;
 
 #[test]
 fn reports_basic_line_changes() {
-    let output = diff_impl(b"a\nb\nc\n", b"a\nbee\nc\nd\n", br#"{}"#).unwrap();
+    let output = diff_impl(b"a\nb\nc\n", b"a\nbee\nc\nd\n", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
 
     assert_eq!(value["stats"]["deletions"], 1);
@@ -14,7 +14,7 @@ fn reports_basic_line_changes() {
 
 #[test]
 fn reports_full_similarity_for_empty_files() {
-    let output = diff_impl(b"", b"", br#"{}"#).unwrap();
+    let output = diff_impl(b"", b"", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
 
     assert_eq!(value["stats"]["similarity"], 1.0);
@@ -22,7 +22,7 @@ fn reports_full_similarity_for_empty_files() {
 
 #[test]
 fn reports_line_ops_with_row_ranges() {
-    let output = diff_impl(b"a\nb\nc\n", b"a\nbee\nc\nd\n", br#"{}"#).unwrap();
+    let output = diff_impl(b"a\nb\nc\n", b"a\nbee\nc\nd\n", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let ops = value["ops"].as_array().unwrap();
 
@@ -50,7 +50,7 @@ fn can_ignore_whitespace() {
 
 #[test]
 fn reports_inline_spans_for_replacements() {
-    let output = diff_impl(b"hello world\n", b"hello typst\n", br#"{}"#).unwrap();
+    let output = diff_impl(b"hello world\n", b"hello typst\n", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let row = &value["rows"][0];
 
@@ -216,7 +216,7 @@ fn accepts_semantic_cleanup_for_inline_spans() {
 
 #[test]
 fn defaults_to_presentable_diff_options() {
-    let output = diff_impl(b"old input\n", b"new input\n", br#"{}"#).unwrap();
+    let output = diff_impl(b"old input\n", b"new input\n", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
 
     assert_eq!(value["meta"]["algorithm"], "histogram");
@@ -251,7 +251,7 @@ fn reports_debug_metadata() {
 
 #[test]
 fn reports_trailing_newline_metadata() {
-    let output = diff_impl(b"a\n", b"a", br#"{}"#).unwrap();
+    let output = diff_impl(b"a\n", b"a", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let messages = value["meta"]["messages"].as_array().unwrap();
 
@@ -266,7 +266,7 @@ fn reports_trailing_newline_metadata() {
 
 #[test]
 fn reports_line_ending_metadata() {
-    let output = diff_impl(b"a\r\nb\r\n", b"a\nb\n", br#"{}"#).unwrap();
+    let output = diff_impl(b"a\r\nb\r\n", b"a\nb\n", br"{}").unwrap();
     let value: serde_json::Value = serde_json::from_slice(&output).unwrap();
     let messages = value["meta"]["messages"].as_array().unwrap();
 
