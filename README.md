@@ -305,15 +305,15 @@ Larger examples:
 
 ### Git Commit Diffs
 
-The `uv` runnable helper [`python/git-diff.py`](python/git-diff.py), also
-available in the [`clvnkhr/diffst`](https://github.com/clvnkhr/diffst) source
-repository, generates a Typst report for all files changed between two Git
-revisions. It accepts full or short commit hashes, writes one section per
-changed file, and adds an outline plus back-to-top links.
+The `uv` runnable helper `scripts/git-diff.py` in the
+[`clvnkhr/diffst`](https://github.com/clvnkhr/diffst) source repository
+generates a Typst report for all files changed between two Git revisions. It
+accepts full or short commit hashes, writes one section per changed file, and
+adds an outline plus back-to-top links.
 
 ```sh
-python/git-diff.py cece06a 8b48d70 --output examples/diffs/git-cece06a-8b48d70.typ
-python/git-diff.py b8ccbd3 cece06a --output examples/diffs/git-b8ccbd3-cece06a.typ
+scripts/git-diff.py cece06a 8b48d70 --output examples/diffs/git-cece06a-8b48d70.typ
+scripts/git-diff.py b8ccbd3 cece06a --output examples/diffs/git-b8ccbd3-cece06a.typ
 
 typst compile --root . examples/diffs/git-cece06a-8b48d70.typ examples/diffs/git-cece06a-8b48d70.pdf
 typst compile --root . examples/diffs/git-b8ccbd3-cece06a.typ examples/diffs/git-b8ccbd3-cece06a.pdf

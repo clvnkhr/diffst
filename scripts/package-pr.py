@@ -27,6 +27,10 @@ ALWAYS_EXCLUDE = {
     "package-pr",
 }
 
+EXCLUDED_NAMES = {
+    "__pycache__",
+}
+
 
 def load_manifest() -> dict:
     with (REPO_ROOT / "typst.toml").open("rb") as manifest:
@@ -45,7 +49,10 @@ def excluded_paths(manifest: dict, output_dir: Path) -> set[Path]:
 
 def is_excluded(path: Path, excluded: set[Path]) -> bool:
     resolved = path.resolve()
-    return any(resolved == item or item in resolved.parents for item in excluded)
+    return (
+        any(part in EXCLUDED_NAMES for part in path.relative_to(REPO_ROOT).parts)
+        or any(resolved == item or item in resolved.parents for item in excluded)
+    )
 
 
 def copy_package(output_dir: Path) -> Path:

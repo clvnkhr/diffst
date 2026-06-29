@@ -13,7 +13,7 @@ rustup target add wasm32-unknown-unknown
 
 Optional tools:
 
-- `uv`, used by the helper scripts in `python/` and `scripts/`.
+- `uv`, used by the helper scripts in `scripts/`.
 - `typst-package-check` and `typship`, used for release validation.
 
 ## Build the WASM Artifact

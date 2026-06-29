@@ -1,4 +1,5 @@
 /target/
 /package-pr/
+__pycache__/
 *.pdf
 .DS_Store

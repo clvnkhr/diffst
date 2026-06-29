@@ -19,9 +19,11 @@ The internal report module loads the plugin from `plugin.wasm`:
 ```
 
 During development, `scripts/smoke.sh` runs the Rust tests, builds
-`target/wasm32-unknown-unknown/release/diffst_wasm.wasm`, copies it to
-`plugin.wasm`, and compiles the examples. The package itself should only depend
-on `plugin.wasm`; `target/...` is just the local Rust build output.
+`target/wasm32-unknown-unknown/release/diffst_wasm.wasm`, optimizes it with
+`wasm-opt -Oz --enable-bulk-memory`, writes the optimized result to
+`plugin.wasm`, and compiles the examples. Development intentionally requires
+`wasm-opt` so there is only one artifact path. The package itself should only
+depend on `plugin.wasm`; `target/...` is just the local Rust build output.
 
 ## Public Typst layers
 
@@ -188,8 +190,26 @@ operation ranges.
 
 1. Runs `cargo test`.
 2. Builds the release WASM target.
-3. Copies the build output to `plugin.wasm`.
+3. Optimizes the build output with `wasm-opt` and writes `plugin.wasm`.
 4. Compiles every `examples/**/*.typ` file to a temporary PDF directory.
 
 This catches Rust regressions, WASM/plugin boundary problems, and Typst syntax
 or rendering integration failures.
+
+Examples are organized as renderable reports in `examples/diffs/` and source
+fixtures in `examples/sources/`. The generated Git commit examples in
+`examples/diffs/git-*.typ` come from `scripts/git-diff.py`.
+
+## Repository helper scripts
+
+The `scripts/` directory is repository tooling, not part of the published Typst
+package. It is excluded by `typst.toml`.
+
+- `scripts/smoke.sh` builds `plugin.wasm` and compiles examples.
+- `scripts/git-diff.py` is a `uv` runnable helper that compares two Git
+  revisions and writes a Typst document with an outline, one section per
+  changed file, summary stats in outline entries, back-to-top links, and byte
+  size summaries for binary or non-UTF-8 files.
+- `scripts/package-pr.py` is a `uv` runnable helper that copies the publishable
+  package files into `package-pr/packages/preview/diffst/<version>/`, respecting
+  `typst.toml`'s `exclude` list and skipping local cache directories.
