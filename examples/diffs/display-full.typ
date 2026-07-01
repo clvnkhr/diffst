@@ -6,7 +6,7 @@
 = display: full
 
 #diffst(
-  "examples/sources/option-cases/collapse-old.txt",
-  "examples/sources/option-cases/collapse-new.txt",
+  path("../sources/option-cases/collapse-old.txt"),
+  path("../sources/option-cases/collapse-new.txt"),
   display: "full",
 )

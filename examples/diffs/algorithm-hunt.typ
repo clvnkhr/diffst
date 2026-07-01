@@ -6,7 +6,7 @@
 = algorithm: hunt
 
 #diffst(
-  "examples/sources/algorithm-cases/duplicates-old.typ",
-  "examples/sources/algorithm-cases/duplicates-new.typ",
+  path("../sources/algorithm-cases/duplicates-old.typ"),
+  path("../sources/algorithm-cases/duplicates-new.typ"),
   algorithm: "hunt",
 )

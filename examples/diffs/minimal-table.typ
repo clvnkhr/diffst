@@ -8,8 +8,8 @@
 = minimal table
 
 #diffst(
-  "examples/sources/paper-old.typ",
-  "examples/sources/paper-new.typ",
+  path("../sources/paper-old.typ"),
+  path("../sources/paper-new.typ"),
   display: "collapsed",
   context-lines: 2,
   inline: "words",

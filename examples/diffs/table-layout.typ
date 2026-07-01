@@ -6,8 +6,8 @@
 = table-layout: single
 
 #diffst(
-  "examples/sources/option-cases/unicode-old.txt",
-  "examples/sources/option-cases/unicode-new.txt",
+  path("../sources/option-cases/unicode-old.txt"),
+  path("../sources/option-cases/unicode-new.txt"),
   table-layout: "single",
   display: "collapsed",
   collapse-threshold: 6,

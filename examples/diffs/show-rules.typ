@@ -67,8 +67,8 @@
 ```
 
 #diffst(
-  "examples/sources/paper-old.typ",
-  "examples/sources/paper-new.typ",
+  path("../sources/paper-old.typ"),
+  path("../sources/paper-new.typ"),
   display: "collapsed",
   collapse-threshold: 2,
   inline: "words",

@@ -6,8 +6,8 @@
 = unicode: true
 
 #diffst(
-  "examples/sources/option-cases/unicode-old.txt",
-  "examples/sources/option-cases/unicode-new.txt",
+  path("../sources/option-cases/unicode-old.txt"),
+  path("../sources/option-cases/unicode-new.txt"),
   inline: "chars",
   unicode: true,
 )
@@ -17,8 +17,8 @@
 = unicode: false
 
 #diffst(
-  "examples/sources/option-cases/unicode-old.txt",
-  "examples/sources/option-cases/unicode-new.txt",
+  path("../sources/option-cases/unicode-old.txt"),
+  path("../sources/option-cases/unicode-new.txt"),
   inline: "chars",
   unicode: false,
 )

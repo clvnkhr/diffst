@@ -6,6 +6,6 @@
 = trailing newline
 
 #diffst(
-  "examples/sources/option-cases/trailing-newline-old.txt",
-  "examples/sources/option-cases/trailing-newline-new.txt",
+  path("../sources/option-cases/trailing-newline-old.txt"),
+  path("../sources/option-cases/trailing-newline-new.txt"),
 )

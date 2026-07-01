@@ -6,7 +6,7 @@
 = trailing whitespace
 
 #diffst(
-  "examples/sources/option-cases/trailing-whitespace-old.txt",
-  "examples/sources/option-cases/trailing-whitespace-new.txt",
+  path("../sources/option-cases/trailing-whitespace-old.txt"),
+  path("../sources/option-cases/trailing-whitespace-new.txt"),
   show-whitespace: true,
 )

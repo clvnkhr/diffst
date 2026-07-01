@@ -3,8 +3,8 @@
 #set page(width: 297mm, height: auto, margin: 12mm)
 #set text(font: "New Computer Modern", size: 9pt)
 
-#let old-file = "../sources/paper-old.typ"
-#let new-file = "../sources/paper-new.typ"
+#let old-file = path("../sources/paper-old.typ")
+#let new-file = path("../sources/paper-new.typ")
 #let report = diffst-report(
   read(old-file),
   read(new-file),

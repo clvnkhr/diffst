@@ -6,7 +6,7 @@
 = inline: chars
 
 #diffst(
-  "examples/sources/option-cases/inline-old.txt",
-  "examples/sources/option-cases/inline-new.txt",
+  path("../sources/option-cases/inline-old.txt"),
+  path("../sources/option-cases/inline-new.txt"),
   inline: "chars",
 )

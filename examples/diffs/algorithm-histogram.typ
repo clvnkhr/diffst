@@ -6,7 +6,7 @@
 = algorithm: histogram
 
 #diffst(
-  "examples/sources/algorithm-cases/histogram-old.typ",
-  "examples/sources/algorithm-cases/histogram-new.typ",
+  path("../sources/algorithm-cases/histogram-old.typ"),
+  path("../sources/algorithm-cases/histogram-new.typ"),
   algorithm: "histogram",
 )

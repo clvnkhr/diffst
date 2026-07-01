@@ -4,8 +4,8 @@
 
 = hunks
 
-#let old-file = "../sources/option-cases/collapse-old.txt"
-#let new-file = "../sources/option-cases/collapse-new.txt"
+#let old-file = path("../sources/option-cases/collapse-old.txt")
+#let new-file = path("../sources/option-cases/collapse-new.txt")
 #let report = diffst-report(
   read(old-file),
   read(new-file),

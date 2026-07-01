@@ -6,8 +6,8 @@
 = realistic diffst example
 
 #diffst(
-  "examples/sources/paper-old.typ",
-  "examples/sources/paper-new.typ",
+  path("../sources/paper-old.typ"),
+  path("../sources/paper-new.typ"),
   inline: "words",
   semantic-cleanup: true,
   show-whitespace: true,

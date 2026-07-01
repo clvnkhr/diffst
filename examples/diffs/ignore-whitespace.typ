@@ -8,16 +8,16 @@
 == normal diff
 
 #diffst(
-  "examples/sources/option-cases/whitespace-old.txt",
-  "examples/sources/option-cases/whitespace-new.txt",
+  path("../sources/option-cases/whitespace-old.txt"),
+  path("../sources/option-cases/whitespace-new.txt"),
   show-whitespace: true,
 )
 
 == ignored whitespace
 
 #diffst(
-  "examples/sources/option-cases/whitespace-old.txt",
-  "examples/sources/option-cases/whitespace-new.txt",
+  path("../sources/option-cases/whitespace-old.txt"),
+  path("../sources/option-cases/whitespace-new.txt"),
   ignore-whitespace: true,
   show-whitespace: true,
 )

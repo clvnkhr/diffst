@@ -19,8 +19,8 @@
 = custom diffst colors
 
 #diffst(
-  "examples/sources/old.typ",
-  "examples/sources/new.typ",
+  path("../sources/old.typ"),
+  path("../sources/new.typ"),
   show-whitespace: true,
 )
 
@@ -29,8 +29,8 @@
 = one-off override
 
 #diffst(
-  "examples/sources/old.typ",
-  "examples/sources/new.typ",
+  path("../sources/old.typ"),
+  path("../sources/new.typ"),
   colors: (
     replace: rgb("#fef3c7"),
     inline-delete: rgb("#f0abfc"),

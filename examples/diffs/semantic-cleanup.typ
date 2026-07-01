@@ -6,7 +6,7 @@
 = semantic-cleanup
 
 #diffst(
-  "examples/sources/option-cases/semantic-old.txt",
-  "examples/sources/option-cases/semantic-new.txt",
+  path("../sources/option-cases/semantic-old.txt"),
+  path("../sources/option-cases/semantic-new.txt"),
   semantic-cleanup: true,
 )

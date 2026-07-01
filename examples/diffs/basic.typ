@@ -5,4 +5,4 @@
 
 = diffst example
 
-#diffst("examples/sources/old.typ", "examples/sources/new.typ")
+#diffst(path("../sources/old.typ"), path("../sources/new.typ"))

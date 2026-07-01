@@ -6,8 +6,8 @@
 = long lines
 
 #diffst(
-  "examples/sources/option-cases/long-lines-old.txt",
-  "examples/sources/option-cases/long-lines-new.txt",
+  path("../sources/option-cases/long-lines-old.txt"),
+  path("../sources/option-cases/long-lines-new.txt"),
   inline: "words",
   semantic-cleanup: true,
   show-whitespace: true,

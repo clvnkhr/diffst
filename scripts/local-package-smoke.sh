@@ -34,13 +34,18 @@ mkdir -p "$out_dir"
 test_file="$out_dir/test.typ"
 pdf_file="$out_dir/test.pdf"
 
+printf 'alpha\nbeta\ngamma\n' > "$out_dir/old.txt"
+printf 'alpha\nbetter\ngamma\n' > "$out_dir/new.txt"
+
 cat > "$test_file" <<'TYP'
-#import "@local/diffst:0.1.0": diffst-content, diffst-report, diffst-summary
+#import "@local/diffst:0.1.0": diffst, diffst-content, diffst-report, diffst-summary
 
 #set page(height: auto)
 
 #let old = "alpha\nbeta\ngamma\n"
 #let new = "alpha\nbetter\ngamma\n"
+
+#diffst(path("old.txt"), path("new.txt"))
 
 #diffst-content(old, new, old-label: "old.txt", new-label: "new.txt")
 

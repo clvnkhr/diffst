@@ -16,8 +16,8 @@
   inline-insert: rgb("#67e8f9"),
 )
 
-#let old-file = "../sources/old.typ"
-#let new-file = "../sources/new.typ"
+#let old-file = path("../sources/old.typ")
+#let new-file = path("../sources/new.typ")
 #let report = diffst-report(
   read(old-file),
   read(new-file),

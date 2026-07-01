@@ -6,7 +6,7 @@
 = algorithm: patience
 
 #diffst(
-  "examples/sources/algorithm-cases/patience-old.typ",
-  "examples/sources/algorithm-cases/patience-new.typ",
+  path("../sources/algorithm-cases/patience-old.typ"),
+  path("../sources/algorithm-cases/patience-new.typ"),
   algorithm: "patience",
 )

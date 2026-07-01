@@ -9,8 +9,8 @@
 #set page(width: 297mm, height: auto, margin: 12mm)
 #set text(font: "New Computer Modern", size: 9pt)
 
-#let old-file = "../sources/option-cases/unicode-old.txt"
-#let new-file = "../sources/option-cases/unicode-new.txt"
+#let old-file = path("../sources/option-cases/unicode-old.txt")
+#let new-file = path("../sources/option-cases/unicode-new.txt")
 #let report = diffst-report(
   read(old-file),
   read(new-file),
