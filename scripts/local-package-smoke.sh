@@ -1,12 +1,14 @@
 #!/bin/sh
 set -eu
 
-package_dir="package-pr/packages/preview/diffst/0.1.0"
+package_name="diffst"
+package_version="0.1.0"
+package_dir="package-pr/packages/preview/$package_name/$package_version"
 out_dir="${TMPDIR:-/tmp}/diffst-local-package-smoke"
-local_package_dir="${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/diffst/0.1.0"
+local_package_dir="${XDG_DATA_HOME:-$HOME/.local/share}/typst/packages/local/$package_name/$package_version"
 
 if [ "$(uname)" = "Darwin" ]; then
-  local_package_dir="$HOME/Library/Application Support/typst/packages/local/diffst/0.1.0"
+  local_package_dir="$HOME/Library/Application Support/typst/packages/local/$package_name/$package_version"
 fi
 
 cleanup() {
@@ -21,12 +23,36 @@ scripts/package-pr.py
 typst-package-check check --offline "$package_dir"
 
 rm -rf "$local_package_dir"
+mkdir -p "$(dirname "$local_package_dir")"
+
+package_symlink="$(find "$package_dir" -type l -print -quit)"
+if [ -n "$package_symlink" ]; then
+  printf 'package tree contains symlink: %s\n' "$package_symlink" >&2
+  exit 1
+fi
 
 (
   cd "$package_dir"
   typship check
-  typship install local
 )
+
+cp -R "$package_dir" "$local_package_dir"
+
+installed_symlink="$(find "$local_package_dir" -type l -print -quit)"
+if [ -n "$installed_symlink" ]; then
+  printf 'local package install contains symlink: %s\n' "$installed_symlink" >&2
+  exit 1
+fi
+
+if [ ! -f "$local_package_dir/lib.typ" ] || [ ! -f "$local_package_dir/plugin.wasm" ]; then
+  printf 'local package install is missing lib.typ or plugin.wasm\n' >&2
+  exit 1
+fi
+
+if [ "$(cd "$package_dir" && pwd -P)" = "$(cd "$local_package_dir" && pwd -P)" ]; then
+  printf 'local package install resolves to the package staging directory\n' >&2
+  exit 1
+fi
 
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
